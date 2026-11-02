@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>Smart Campus — Space &amp; Resource Booking</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="errBanner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:200;
+  background:#b91c1c;color:#fff;padding:9px 14px;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace"></div>
+
+<div id="loginScreen" class="login-wrap">
+  <div class="login-card" id="loginCard">
+    <div class="logo">SC</div>
+    <h1>Smart Campus</h1>
+    <p class="sub">Space &amp; Resource Booking System — centralized discovery, conflict-free booking and approvals.</p>
+    <div id="loginFormArea">
+      <div class="field"><label for="loginEmail">Email</label>
+        <input id="loginEmail" class="input" type="email" placeholder="name@campus.edu" autocomplete="username"></div>
+      <div class="field"><label for="loginPass">Password</label>
+        <input id="loginPass" class="input" type="password" placeholder="••••••••" autocomplete="current-password"></div>
+      <button id="signInBtn" class="btn primary block" type="button" onclick="doLogin()">Sign in</button>
+      <div style="text-align:center;margin-top:16px">
+        <button type="button" class="link-btn" onclick="toggleAuthMode('register')">New user? Register here</button>
+      </div>
+    </div>
+
+    <div id="registerFormArea" class="hidden">
+      <!-- Account Type Selector -->
+      <div class="field" style="margin-bottom:16px;">
+        <label style="font-weight:700;color:var(--ink);margin-bottom:8px;display:block;">Select Account Type</label>
+        <div class="account-selector" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;background:var(--bg);padding:4px;border-radius:12px;border:1px solid var(--line);">
+          <button id="typeBtnStudent" type="button" class="role-tab active" onclick="setAccountType('Student')">Student</button>
+          <button id="typeBtnFaculty" type="button" class="role-tab" onclick="setAccountType('Faculty')">Faculty</button>
+          <button id="typeBtnSociety" type="button" class="role-tab" onclick="setAccountType('Society')">Society</button>
+        </div>
+      </div>
+
+      <!-- User Fields Group (Student & Faculty) -->
+      <div id="userFieldsGroup">
+        <div class="field"><label id="regNameLabel" for="regName">Full Name *</label>
+          <input id="regName" class="input" type="text" placeholder="e.g. Alex Roy or Dr. Jane Smith"></div>
+        <div class="field"><label id="regEmailLabel" for="regEmail">Campus Email *</label>
+          <input id="regEmail" class="input" type="email" placeholder="name@campus.edu"></div>
+        <div class="field"><label id="regDeptLabel" for="regDept">Department</label>
+          <select id="regDept" class="input"></select></div>
+
+        <!-- Faculty-Specific Fields -->
+        <div id="facultySpecificFields" class="hidden">
+          <div class="field"><label for="regEmpId">Staff / Employee ID *</label>
+            <input id="regEmpId" class="input" type="text" placeholder="e.g. FAC-2026-042"></div>
+          <div class="field"><label for="regDesignation">Designation (Optional)</label>
+            <input id="regDesignation" class="input" type="text" placeholder="e.g. Assistant Professor, HOD"></div>
+        </div>
+
+        <div class="field"><label for="regPhone">Phone Number (Optional)</label>
+          <input id="regPhone" class="input" type="tel" placeholder="+91 9876543210"></div>
+        <div id="userPassField" class="field"><label for="regPass">Password (Min 8 chars) *</label>
+          <input id="regPass" class="input" type="password" placeholder="••••••••"></div>
+      </div>
+
+      <!-- Society-Specific Fields Group -->
+      <div id="societyFieldsGroup" class="hidden">
+        <div class="field"><label for="regSocName">Society / Club Name *</label>
+          <input id="regSocName" class="input" type="text" placeholder="e.g. Robotics Club, Music Society"></div>
+        <div class="field"><label for="regSocDept">Department / Affiliation</label>
+          <select id="regSocDept" class="input"></select></div>
+        <div class="field"><label for="regSocDesc">Description / Purpose</label>
+          <textarea id="regSocDesc" class="input" rows="2" placeholder="Brief mission, focus and activities..."></textarea></div>
+        <div class="field"><label for="regSocYear">Established Year</label>
+          <input id="regSocYear" class="input" type="number" value="2026"></div>
+        <div class="field"><label for="regSocCoordinatorEmail">Coordinator Campus Email *</label>
+          <input id="regSocCoordinatorEmail" class="input" type="email" placeholder="coordinator@campus.edu">
+          <span class="muted" style="font-size:11.5px;display:block;margin-top:4px;">Must belong to an existing registered Student or Faculty account.</span></div>
+      </div>
+
+      <div id="regHintText" class="muted" style="font-size:12px;margin:8px 0 14px;text-align:center;line-height:1.45;">
+        Instant access to search and reserve campus facilities.
+      </div>
+
+      <button id="registerBtn" class="btn primary block" type="button" onclick="handleRegistrationSubmit()">Register Student Account</button>
+      <div style="text-align:center;margin-top:16px">
+        <button type="button" class="link-btn" onclick="toggleAuthMode('login')">Already have an account? Sign in</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="app" class="app hidden">
+  <aside class="sidebar">
+    <div class="brand"><div class="mark">SC</div>
+      <div><h2>Smart Campus</h2><span>Booking System</span></div></div>
+    <nav id="nav"></nav>
+    <div class="userbox">
+      <div class="nm" id="uName"></div>
+      <div class="rl" id="uRole"></div>
+      <button type="button" id="signOutBtn" onclick="logout()" title="Sign out of your session">Sign out</button>
+    </div>
+  </aside>
+  <main class="main">
+    <header class="topbar">
+      <div><h1 id="viewTitle">Resources</h1><div class="sub" id="viewSub"></div></div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <button id="notifBellBtn" class="btn icon notif-bell" type="button" onclick="openNotificationsModal()" title="View notifications" style="position:relative">
+          <span style="font-size:16px">🔔</span>
+          <span id="notifBadge" class="badge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ef4444;color:#fff;font-size:10px;font-weight:700;border-radius:10px;padding:1px 5px;line-height:1.2">0</span>
+        </button>
+        <div id="topActions"></div>
+      </div>
+    </header>
+    <div id="view" class="view"></div>
+  </main>
+</div>
+
+<div id="modalRoot"></div>
+<div id="toast" class="toast"></div>
+
+<!-- Modular Architecture Scripts -->
+<script src="js/config.js?v=3"></script>
+<script src="js/api.js?v=3"></script>
+<script src="js/auth.js?v=3"></script>
+<script src="js/navigation.js?v=4"></script>
+<script src="js/resources.js?v=3"></script>
+<script src="js/bookings.js?v=4"></script>
+<script src="js/approvals.js?v=3"></script>
+<script src="js/checkins.js?v=3"></script>
+<script src="js/maintenance.js?v=3"></script>
+<script src="js/blackouts.js?v=3"></script>
+<script src="js/notifications.js?v=3"></script>
+<script src="js/societies.js?v=3"></script>
+<script src="js/equipment.js?v=3"></script>
+<script src="js/users.js?v=3"></script>
+<script src="js/timetable_admin.js?v=3"></script>
+<script src="js/reports.js?v=5"></script>
+<script src="js/app.js?v=3"></script>
+</body>
+</html>
