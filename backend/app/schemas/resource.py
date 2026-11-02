@@ -25,6 +25,7 @@ class ResourceBase(BaseModel):
     resource_name: str = Field(..., min_length=1, max_length=150)
     resource_code: str = Field(..., min_length=1, max_length=50)
     location: str = Field(..., min_length=1, max_length=200)
+    operating_hours: Optional[str] = Field(None, max_length=255)
     capacity: Optional[int] = Field(None, ge=1)
     status: Optional[str] = Field("Available", description="Available, Maintenance, Inactive")
     description: Optional[str] = None
@@ -39,6 +40,7 @@ class ResourceUpdate(BaseModel):
     resource_name: Optional[str] = Field(None, max_length=150)
     resource_code: Optional[str] = Field(None, max_length=50)
     location: Optional[str] = None
+    operating_hours: Optional[str] = Field(None, max_length=255)
     capacity: Optional[int] = None
     status: Optional[str] = None
     description: Optional[str] = None

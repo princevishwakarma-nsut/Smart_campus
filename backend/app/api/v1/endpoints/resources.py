@@ -21,7 +21,7 @@ def list_resources(
     db=Depends(get_db)
 ):
     query = """
-        SELECT r.resource_id, r.category_id, r.resource_name, r.resource_code, r.location,
+        SELECT r.resource_id, r.category_id, r.resource_name, r.resource_code, r.location, r.operating_hours,
                r.capacity, r.status, r.description, r.created_at, r.updated_at,
                c.category_name
         FROM resources r
@@ -65,6 +65,7 @@ def list_resources(
                 resource_name=r["resource_name"],
                 resource_code=r["resource_code"],
                 location=r["location"],
+                operating_hours=r["operating_hours"],
                 capacity=r["capacity"],
                 status=r["status"],
                 description=r["description"],
@@ -87,7 +88,7 @@ def list_departments_alias(db=Depends(get_db)):
 def get_resource(resource_id: int, db=Depends(get_db)):
     db.execute(
         """
-        SELECT r.resource_id, r.category_id, r.resource_name, r.resource_code, r.location,
+        SELECT r.resource_id, r.category_id, r.resource_name, r.resource_code, r.location, r.operating_hours,
                r.capacity, r.status, r.description, r.created_at, r.updated_at,
                c.category_name
         FROM resources r
@@ -110,6 +111,7 @@ def get_resource(resource_id: int, db=Depends(get_db)):
         resource_name=r["resource_name"],
         resource_code=r["resource_code"],
         location=r["location"],
+        operating_hours=r["operating_hours"],
         capacity=r["capacity"],
         status=r["status"],
         description=r["description"],
@@ -139,14 +141,15 @@ def create_resource(
     with transaction_scope() as (conn, cursor):
         cursor.execute(
             """
-            INSERT INTO resources (category_id, resource_name, resource_code, location, capacity, status, description)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO resources (category_id, resource_name, resource_code, location, operating_hours, capacity, status, description)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 req.category_id,
                 req.resource_name.strip(),
                 code,
                 req.location.strip(),
+                req.operating_hours.strip() if req.operating_hours else None,
                 req.capacity,
                 req.status or "Available",
                 req.description
@@ -197,6 +200,9 @@ def update_resource(
         if req.location is not None:
             updates.append("location = %s")
             params.append(req.location.strip())
+        if "operating_hours" in req.model_fields_set:
+            updates.append("operating_hours = %s")
+            params.append(req.operating_hours.strip() if req.operating_hours else None)
         if req.capacity is not None:
             updates.append("capacity = %s")
             params.append(req.capacity)

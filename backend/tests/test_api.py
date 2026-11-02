@@ -1,7 +1,9 @@
 import sys
 import os
 import unittest
+from contextlib import contextmanager
 from datetime import datetime, timedelta
+from unittest import mock
 from zoneinfo import ZoneInfo
 from fastapi.testclient import TestClient
 
@@ -11,6 +13,10 @@ from app.main import app
 from app.database.connection import get_connection_pool
 from app.core.security import get_password_hash, create_access_token
 from app.core.config import settings
+from app.core.permissions import UserContext
+from app.schemas.blackout import BlackoutCreate
+from app.database.transaction import transaction_scope
+from app.api.v1.endpoints import blackouts as blackout_endpoint
 
 client = TestClient(app)
 
@@ -312,6 +318,16 @@ class SmartCampusComprehensiveTests(unittest.TestCase):
             self.assertEqual(booking["equipment"][0]["item_id"], item_id)
             self.assertEqual(booking["equipment"][0]["requested_quantity"], 1)
             self.assertEqual(booking["status"], "Pending")
+            admin_feed = client.get("/api/v1/notifications", headers=self.admin_headers, params={"is_read": False})
+            self.assertEqual(admin_feed.status_code, 200, admin_feed.text)
+            admin_request_notification = next(
+                item for item in admin_feed.json() if item["booking_id"] == booking_id
+            )
+            self.assertEqual(admin_request_notification["equipment_name"], "Equipment Booking Contract Test")
+            self.assertIsNotNone(admin_request_notification["requester_name"])
+            self.assertIn("Equipment Booking Contract Test", admin_request_notification["message"])
+            student_feed = client.get("/api/v1/notifications", headers=self.student_headers, params={"is_read": False})
+            self.assertIn(booking_id, [item["booking_id"] for item in student_feed.json()])
             schedule_before_approval = client.get("/api/v1/bookings/my/schedule", headers=self.student_headers)
             self.assertEqual(schedule_before_approval.status_code, 200, schedule_before_approval.text)
             self.assertEqual(
@@ -342,6 +358,15 @@ class SmartCampusComprehensiveTests(unittest.TestCase):
             self.assertEqual(approved_booking["status"], "Approved")
             self.assertEqual(approved_booking["start_time"], start.isoformat())
             self.assertEqual(approved_booking["equipment"][0]["item_id"], item_id)
+            student_feed_after_approval = client.get(
+                "/api/v1/notifications",
+                headers=self.student_headers,
+                params={"is_read": False}
+            )
+            self.assertTrue(any(
+                item["booking_id"] == booking_id and "approved" in item["message"].lower()
+                for item in student_feed_after_approval.json()
+            ))
 
             cancelled = client.patch(
                 f"/api/v1/bookings/{booking_id}/cancel",
@@ -356,6 +381,15 @@ class SmartCampusComprehensiveTests(unittest.TestCase):
                 schedule_after_cancellation.json()["upcoming_bookings"]
             ]
             self.assertNotIn(booking_id, visible_ids)
+            admin_feed_after_cancel = client.get(
+                "/api/v1/notifications",
+                headers=self.admin_headers,
+                params={"is_read": False}
+            )
+            self.assertTrue(any(
+                item["booking_id"] == booking_id and "cancelled" in item["message"].lower()
+                for item in admin_feed_after_cancel.json()
+            ))
         finally:
             conn = pool.get_connection()
             cursor = conn.cursor()
@@ -574,6 +608,70 @@ class SmartCampusComprehensiveTests(unittest.TestCase):
             self.assertNotIn(messages["admin_user"], admin_messages)
             self.assertIn(messages["student"], student_messages)
             self.assertNotIn(messages["student_admin"], student_messages)
+
+            c.execute("SELECT notification_id FROM notifications WHERE message = %s", (messages["student"],))
+            student_notification_id = c.fetchone()["notification_id"]
+            c.execute("SELECT notification_id FROM notifications WHERE message = %s", (messages["admin"],))
+            admin_notification_id = c.fetchone()["notification_id"]
+
+            self.assertEqual(
+                client.get("/api/v1/notifications", headers=self.student_headers, params={"is_read": False}).status_code,
+                200
+            )
+            self.assertEqual(
+                client.patch(f"/api/v1/notifications/{student_notification_id}/read", headers=self.admin_headers).status_code,
+                404
+            )
+            self.assertEqual(
+                client.patch(f"/api/v1/notifications/{student_notification_id}/read", headers=self.student_headers).status_code,
+                200
+            )
+            unread = client.get(
+                "/api/v1/notifications",
+                headers=self.student_headers,
+                params={"is_read": False}
+            )
+            history = client.get(
+                "/api/v1/notifications",
+                headers=self.student_headers,
+                params={"is_read": True}
+            )
+            self.assertNotIn(messages["student"], {notification["message"] for notification in unread.json()})
+            self.assertIn(messages["student"], {notification["message"] for notification in history.json()})
+            c.execute(
+                """
+                INSERT INTO notifications (user_id, message, type, audience, is_read)
+                VALUES (%s, %s, 'Info', 'User', 1), (%s, %s, 'Info', 'User', 1)
+                """,
+                (
+                    self.student_id, f"{marker}-history-page-1",
+                    self.student_id, f"{marker}-history-page-2"
+                )
+            )
+            conn.commit()
+            first_history_page = client.get(
+                "/api/v1/notifications",
+                headers=self.student_headers,
+                params={"is_read": True, "limit": 1}
+            )
+            self.assertEqual(first_history_page.status_code, 200, first_history_page.text)
+            first_notification_id = first_history_page.json()[0]["notification_id"]
+            second_history_page = client.get(
+                "/api/v1/notifications",
+                headers=self.student_headers,
+                params={"is_read": True, "limit": 1, "before_id": first_notification_id}
+            )
+            self.assertEqual(second_history_page.status_code, 200, second_history_page.text)
+            self.assertEqual(len(second_history_page.json()), 1)
+            self.assertLess(second_history_page.json()[0]["notification_id"], first_notification_id)
+            self.assertEqual(
+                client.patch(f"/api/v1/notifications/{admin_notification_id}/read", headers=self.admin_headers).status_code,
+                200
+            )
+            self.assertEqual(
+                client.patch(f"/api/v1/notifications/{admin_notification_id}/read", headers=self.admin_headers).status_code,
+                200
+            )
         finally:
             c.execute(
                 "DELETE FROM notifications WHERE message LIKE %s",
@@ -581,6 +679,431 @@ class SmartCampusComprehensiveTests(unittest.TestCase):
             )
             conn.commit()
             c.close()
+            conn.close()
+
+    def test_inventory_resource_hours_and_equipment_serial_persist(self):
+        """Resource schedules and equipment asset tags persist through their separate APIs."""
+        marker = f"inventory-test-{int(datetime.now().timestamp() * 1000)}"
+        categories = client.get("/api/v1/categories")
+        self.assertEqual(categories.status_code, 200, categories.text)
+        category_id = categories.json()[0]["category_id"]
+        resource_id = None
+        item_id = None
+        pool = get_connection_pool()
+        conn = pool.get_connection()
+        cursor = conn.cursor()
+
+        try:
+            resource = client.post(
+                "/api/v1/resources",
+                headers=self.admin_headers,
+                json={
+                    "category_id": category_id,
+                    "resource_name": f"{marker} Classroom",
+                    "resource_code": f"R-{marker}",
+                    "location": "North Block",
+                    "operating_hours": "Mon-Fri 08:00-20:00",
+                    "capacity": 40,
+                    "status": "Available",
+                    "features": ["Projector"]
+                }
+            )
+            self.assertEqual(resource.status_code, 201, resource.text)
+            resource_id = resource.json()["resource_id"]
+            edited_resource = client.put(
+                f"/api/v1/resources/{resource_id}",
+                headers=self.admin_headers,
+                json={"operating_hours": "Mon-Sat 09:00-18:00", "capacity": 45}
+            )
+            self.assertEqual(edited_resource.status_code, 200, edited_resource.text)
+            self.assertEqual(edited_resource.json()["operating_hours"], "Mon-Sat 09:00-18:00")
+            self.assertEqual(edited_resource.json()["capacity"], 45)
+
+            equipment = client.post(
+                "/api/v1/equipment",
+                headers=self.admin_headers,
+                json={
+                    "item_name": f"{marker} Microphone",
+                    "item_code": f"EQ-{marker}",
+                    "serial_no": f"S-{marker}",
+                    "category": "Audio/Visual",
+                    "unit": "Piece",
+                    "total_quantity": 2,
+                    "location": "Media Store"
+                }
+            )
+            self.assertEqual(equipment.status_code, 201, equipment.text)
+            item_id = equipment.json()["item_id"]
+            self.assertEqual(equipment.json()["serial_no"], f"S-{marker}")
+            edited_equipment = client.put(
+                f"/api/v1/equipment/{item_id}",
+                headers=self.admin_headers,
+                json={"serial_no": f"S2-{marker}", "location": "AV Cabinet"}
+            )
+            self.assertEqual(edited_equipment.status_code, 200, edited_equipment.text)
+            self.assertEqual(edited_equipment.json()["serial_no"], f"S2-{marker}")
+            self.assertEqual(edited_equipment.json()["location"], "AV Cabinet")
+        finally:
+            if resource_id:
+                cursor.execute("DELETE FROM resource_features WHERE resource_id = %s", (resource_id,))
+                cursor.execute("DELETE FROM resources WHERE resource_id = %s", (resource_id,))
+            if item_id:
+                cursor.execute("DELETE FROM equipment_stock_movements WHERE item_id = %s", (item_id,))
+                cursor.execute("DELETE FROM equipment_items WHERE item_id = %s", (item_id,))
+            conn.commit()
+            cursor.close()
+            conn.close()
+
+    def test_bulk_blackouts_conflicts_reason_edit_cancel_and_rollback(self):
+        """Bulk category/resource selection is atomic and blackout reasons reach booking errors."""
+        marker = f"blackout-bulk-{int(datetime.now().timestamp() * 1000)}"
+        categories = client.get("/api/v1/categories")
+        self.assertEqual(categories.status_code, 200, categories.text)
+        category_ids = [row["category_id"] for row in categories.json()]
+        self.assertGreaterEqual(len(category_ids), 2, "Bulk selection test needs two configured categories.")
+
+        resource_ids = []
+        booking_id = None
+        booking_ids = []
+        extra_admin_id = None
+        blackout_group_ids = []
+        blackout_ids = []
+        start = (datetime.now(ZoneInfo(settings.CAMPUS_TIMEZONE)) + timedelta(days=12)).replace(
+            hour=10, minute=0, second=0, microsecond=0
+        )
+        outside_booking = start.replace(hour=13)
+        bulk_start = (datetime.now(ZoneInfo(settings.CAMPUS_TIMEZONE)) + timedelta(days=365)).replace(
+            hour=10, minute=0, second=0, microsecond=0
+        )
+
+        try:
+            notification_conn = get_connection_pool().get_connection()
+            notification_cursor = notification_conn.cursor()
+            notification_cursor.execute(
+                """
+                INSERT INTO users (name, email, password_hash, role, is_active)
+                VALUES (%s, %s, %s, 'Admin', 1)
+                """,
+                (
+                    f"{marker} Admin",
+                    f"{marker}@campus.edu",
+                    get_password_hash("BlackoutTestPass123!"),
+                ),
+            )
+            extra_admin_id = notification_cursor.lastrowid
+            notification_conn.commit()
+            notification_cursor.close()
+            notification_conn.close()
+
+            for index, category_id in enumerate((category_ids[0], category_ids[0], category_ids[1])):
+                response = client.post(
+                    "/api/v1/resources",
+                    headers=self.admin_headers,
+                    json={
+                        "category_id": category_id,
+                        "resource_name": f"{marker} Resource {index}",
+                        "resource_code": f"BR-{marker[-8:]}-{index}",
+                        "location": "Blackout Test Block",
+                        "capacity": 20,
+                        "status": "Available",
+                    },
+                )
+                self.assertEqual(response.status_code, 201, response.text)
+                resource_ids.append(response.json()["resource_id"])
+
+            first_booking = client.post(
+                "/api/v1/bookings",
+                headers=self.student_headers,
+                json={
+                    "resource_id": resource_ids[0],
+                    "start_time": start.isoformat(),
+                    "end_time": (start + timedelta(hours=1)).isoformat(),
+                    "purpose": f"{marker} conflict booking",
+                },
+            )
+            self.assertEqual(first_booking.status_code, 201, first_booking.text)
+            booking_id = first_booking.json()["booking_id"]
+            booking_ids.append(booking_id)
+
+            conflict_payload = {
+                "resource_ids": [resource_ids[0]],
+                "category_ids": [],
+                "start_datetime": start.isoformat(),
+                "end_datetime": (start + timedelta(hours=2)).isoformat(),
+            }
+            preview = client.post(
+                "/api/v1/blackouts/conflicts",
+                headers=self.admin_headers,
+                json=conflict_payload,
+            )
+            self.assertEqual(preview.status_code, 200, preview.text)
+            self.assertEqual(preview.json()["conflict_count"], 1)
+            self.assertTrue(preview.json()["conflicts"][0]["requester_name"])
+            notification_conn = get_connection_pool().get_connection()
+            notification_cursor = notification_conn.cursor(dictionary=True)
+            notification_cursor.execute(
+                """
+                SELECT notification_id, message FROM notifications
+                WHERE user_id = %s AND booking_id = %s AND audience = 'Admin'
+                  AND message LIKE %s
+                """,
+                (extra_admin_id, booking_id, f"%{marker}%"),
+            )
+            self.assertTrue(notification_cursor.fetchall())
+            notification_cursor.close()
+            notification_conn.close()
+            rejected_creation = client.post(
+                "/api/v1/blackouts",
+                headers=self.admin_headers,
+                json={
+                    **conflict_payload,
+                    "reason_category": "Maintenance",
+                    "reason_explanation": f"{marker} projector maintenance",
+                },
+            )
+            self.assertEqual(rejected_creation.status_code, 409, rejected_creation.text)
+            self.assertEqual(len(rejected_creation.json()["detail"]["conflicts"]), 1)
+
+            cancelled = client.patch(
+                f"/api/v1/bookings/{booking_id}/cancel",
+                headers=self.student_headers,
+                json={"remarks": "Blackout conflict test cleanup"},
+            )
+            self.assertEqual(cancelled.status_code, 200, cancelled.text)
+            booking_id = None
+
+            blackout_start = start.replace(hour=10)
+            blackout_end = start.replace(hour=12)
+            reason = f"{marker} projector maintenance"
+            individual_payload = {
+                "resource_ids": [resource_ids[0]],
+                "excluded_resource_ids": [],
+                "category_ids": [],
+                "start_datetime": blackout_start.isoformat(),
+                "end_datetime": blackout_end.isoformat(),
+                "reason_category": "Maintenance",
+                "reason_explanation": reason,
+            }
+            created = client.post(
+                "/api/v1/blackouts",
+                headers=self.admin_headers,
+                json=individual_payload,
+            )
+            self.assertEqual(created.status_code, 201, created.text)
+            blackout_group_ids.append(created.json()["blackout_group_id"])
+            blackout_ids.extend(created.json()["blackout_ids"])
+
+            overlap = client.post(
+                "/api/v1/bookings",
+                headers=self.student_headers,
+                json={
+                    "resource_id": resource_ids[0],
+                    "start_time": start.replace(minute=30).isoformat(),
+                    "end_time": start.replace(hour=11, minute=30).isoformat(),
+                    "purpose": f"{marker} overlapping booking",
+                },
+            )
+            self.assertEqual(overlap.status_code, 409, overlap.text)
+            detail = overlap.json()["detail"]
+            self.assertIn(f"{marker} Resource 0", detail)
+            self.assertIn("Reason category: Maintenance", detail)
+            self.assertIn(reason, detail)
+            self.assertIn("overlapping blackout period", detail)
+
+            outside = client.post(
+                "/api/v1/bookings",
+                headers=self.student_headers,
+                json={
+                    "resource_id": resource_ids[0],
+                    "start_time": outside_booking.isoformat(),
+                    "end_time": (outside_booking + timedelta(hours=1)).isoformat(),
+                    "purpose": f"{marker} outside blackout",
+                },
+            )
+            self.assertEqual(outside.status_code, 201, outside.text)
+            booking_id = outside.json()["booking_id"]
+            booking_ids.append(booking_id)
+
+            category_payload = {
+                "resource_ids": [resource_ids[0], resource_ids[2], resource_ids[0]],
+                "excluded_resource_ids": [resource_ids[1]],
+                "category_ids": category_ids[:2],
+                "start_datetime": bulk_start.isoformat(),
+                "end_datetime": (bulk_start + timedelta(hours=3)).isoformat(),
+            }
+            bulk_preview = client.post(
+                "/api/v1/blackouts/conflicts",
+                headers=self.admin_headers,
+                json=category_payload,
+            )
+            self.assertEqual(bulk_preview.status_code, 200, bulk_preview.text)
+            selected = [row["resource_id"] for row in bulk_preview.json()["resources"]]
+            self.assertEqual(len(selected), len(set(selected)))
+            self.assertIn(resource_ids[0], selected)
+            self.assertIn(resource_ids[2], selected)
+            self.assertNotIn(resource_ids[1], selected)
+            self.assertEqual(bulk_preview.json()["conflict_count"], 0)
+
+            group_create = client.post(
+                "/api/v1/blackouts",
+                headers=self.admin_headers,
+                json={
+                    **category_payload,
+                    "reason_category": "University Examination",
+                    "reason_explanation": f"{marker} exam period",
+                },
+            )
+            self.assertEqual(group_create.status_code, 201, group_create.text)
+            self.assertEqual(group_create.json()["resource_count"], len(selected))
+            group_id = group_create.json()["blackout_group_id"]
+            blackout_group_ids.append(group_id)
+            blackout_ids.extend(group_create.json()["blackout_ids"])
+
+            pool = get_connection_pool()
+            conn = pool.get_connection()
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(
+                "SELECT blackout_id, resource_id, status FROM resource_blackout_periods WHERE blackout_group_id = %s",
+                (group_id,),
+            )
+            group_rows = cursor.fetchall()
+            self.assertEqual(len(group_rows), len(selected))
+            self.assertEqual(len({row["resource_id"] for row in group_rows}), len(selected))
+            listed_group = client.get(
+                "/api/v1/blackouts",
+                headers=self.admin_headers,
+                params={"status": "Active"},
+            )
+            self.assertEqual(listed_group.status_code, 200, listed_group.text)
+            listed_items = [
+                row for row in listed_group.json()
+                if row["blackout_group_id"] == group_id
+            ]
+            self.assertEqual(len(listed_items), len(selected))
+            self.assertEqual(listed_items[0]["reason_category"], "University Examination")
+            self.assertEqual(listed_items[0]["category_ids"], category_ids[:2])
+            self.assertEqual(listed_items[0]["excluded_resource_ids"], [resource_ids[1]])
+
+            update_payload = {
+                **category_payload,
+                "reason_category": "Official Function",
+                "reason_explanation": f"{marker} updated function schedule",
+            }
+            edited = client.put(
+                f"/api/v1/blackouts/{group_rows[0]['blackout_id']}",
+                headers=self.admin_headers,
+                json=update_payload,
+            )
+            self.assertEqual(edited.status_code, 200, edited.text)
+            self.assertEqual(edited.json()["resource_count"], len(selected))
+            cursor.execute(
+                "SELECT blackout_id, reason_category, reason_explanation FROM resource_blackout_periods WHERE blackout_group_id = %s AND status = 'Active'",
+                (group_id,),
+            )
+            updated_rows = cursor.fetchall()
+            self.assertEqual({row["blackout_id"] for row in updated_rows}, {row["blackout_id"] for row in group_rows})
+            self.assertTrue(all(row["reason_category"] == "Official Function" for row in updated_rows))
+
+            canceled_group = client.patch(
+                f"/api/v1/blackouts/{group_rows[0]['blackout_id']}/cancel",
+                headers=self.admin_headers,
+            )
+            self.assertEqual(canceled_group.status_code, 200, canceled_group.text)
+            cursor.execute(
+                "SELECT COUNT(*) AS count FROM resource_blackout_periods WHERE blackout_group_id = %s AND status = 'Cancelled'",
+                (group_id,),
+            )
+            self.assertEqual(cursor.fetchone()["count"], len(selected))
+            history = client.get(
+                "/api/v1/blackouts",
+                headers=self.admin_headers,
+                params={"status": "Cancelled"},
+            )
+            self.assertEqual(history.status_code, 200, history.text)
+            self.assertEqual(
+                len([row for row in history.json() if row["blackout_group_id"] == group_id]),
+                len(selected),
+            )
+            cursor.close()
+            conn.close()
+
+            rollback_payload = BlackoutCreate(
+                resource_ids=resource_ids,
+                category_ids=[],
+                start_datetime=(bulk_start + timedelta(days=1)),
+                end_datetime=(bulk_start + timedelta(days=1, hours=1)),
+                reason_category="Cleaning",
+                reason_explanation=f"{marker} rollback",
+            )
+            original_scope = blackout_endpoint.transaction_scope
+
+            @contextmanager
+            def failing_transaction_scope():
+                insert_count = 0
+                with original_scope() as (transaction_conn, transaction_cursor):
+                    class FailingCursor:
+                        def execute(self, query, params=None):
+                            nonlocal insert_count
+                            if "INSERT INTO resource_blackout_periods" in query:
+                                insert_count += 1
+                                if insert_count == 2:
+                                    raise RuntimeError("Injected second-resource failure")
+                            return transaction_cursor.execute(query, params or ())
+
+                        def __getattr__(self, name):
+                            return getattr(transaction_cursor, name)
+
+                    yield transaction_conn, FailingCursor()
+
+            with mock.patch.object(blackout_endpoint, "transaction_scope", failing_transaction_scope):
+                with self.assertRaisesRegex(RuntimeError, "Injected second-resource failure"):
+                    blackout_endpoint.create_blackout(
+                        rollback_payload,
+                        UserContext(self.admin_id, "admin.test@campus.edu", "Admin", "Test Admin"),
+                    )
+
+            conn = get_connection_pool().get_connection()
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(
+                "SELECT COUNT(*) AS count FROM resource_blackout_periods WHERE reason_explanation = %s",
+                (f"{marker} rollback",),
+            )
+            self.assertEqual(cursor.fetchone()["count"], 0)
+            cursor.close()
+            conn.close()
+        finally:
+            conn = get_connection_pool().get_connection()
+            cursor = conn.cursor()
+            for created_booking_id in booking_ids:
+                cursor.execute("DELETE FROM notifications WHERE booking_id = %s", (created_booking_id,))
+                cursor.execute("DELETE FROM booking_participants WHERE booking_id = %s", (created_booking_id,))
+                cursor.execute("DELETE FROM booking_equipment_items WHERE booking_id = %s", (created_booking_id,))
+                cursor.execute("DELETE FROM booking_approvals WHERE booking_id = %s", (created_booking_id,))
+                cursor.execute("DELETE FROM booking_audit WHERE booking_id = %s", (created_booking_id,))
+                cursor.execute("DELETE FROM booking_resources WHERE booking_id = %s", (created_booking_id,))
+                cursor.execute("DELETE FROM bookings WHERE booking_id = %s", (created_booking_id,))
+            if blackout_ids:
+                placeholders = ",".join(["%s"] * len(blackout_ids))
+                cursor.execute(
+                    f"DELETE FROM system_audit WHERE entity_type = 'Blackout' AND entity_id IN ({placeholders})",
+                    tuple(blackout_ids),
+                )
+            if blackout_group_ids:
+                placeholders = ",".join(["%s"] * len(blackout_group_ids))
+                cursor.execute(
+                    f"DELETE FROM resource_blackout_periods WHERE blackout_group_id IN ({placeholders})",
+                    tuple(blackout_group_ids),
+                )
+            if resource_ids:
+                placeholders = ",".join(["%s"] * len(resource_ids))
+                cursor.execute(f"DELETE FROM resource_features WHERE resource_id IN ({placeholders})", tuple(resource_ids))
+                cursor.execute(f"DELETE FROM resources WHERE resource_id IN ({placeholders})", tuple(resource_ids))
+                cursor.execute("DELETE FROM notifications WHERE message LIKE %s", (f"%{marker}%",))
+            if extra_admin_id:
+                cursor.execute("DELETE FROM notifications WHERE user_id = %s", (extra_admin_id,))
+                cursor.execute("DELETE FROM users WHERE user_id = %s", (extra_admin_id,))
+            conn.commit()
+            cursor.close()
             conn.close()
 
 

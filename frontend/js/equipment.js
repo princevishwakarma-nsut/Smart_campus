@@ -2,90 +2,21 @@
    Smart Campus — Equipment Inventory & Handover Module
    ========================================================= */
 
-async function openEquipmentModal() {
-  try {
-    const items = await api.get("/equipment");
-
-    let rowsHtml = "";
-    if (items.length) {
-      rowsHtml = items.map(eq => {
-        const canManage = isAdmin() || isStaff();
-        return `
-          <tr>
-            <td class="cell-strong"><b>${esc(eq.item_name)}</b></td>
-            <td><span class="code">${esc(eq.serial_no || '—')}</span></td>
-            <td>${esc(eq.location || 'Media Store')}</td>
-            <td>
-              <span class="pill ${eq.availability_status==='Available'?'ok':eq.availability_status==='Issued'?'warn':'err'}">
-                ${esc(eq.availability_status)}
-              </span>
-            </td>
-            <td><span class="pill ${eq.condition_status==='Good'?'ok':'bad'}">${esc(eq.condition_status)}</span></td>
-            ${canManage ? `
-              <td style="white-space:nowrap;">
-                ${eq.availability_status === 'Available' ? `
-                  <button class="btn ok sm" type="button" onclick="openIssueEquipmentModal(${eq.item_id}, '${esc(eq.item_name)}')">Issue</button>
-                ` : ''}
-                ${eq.availability_status === 'Issued' ? `
-                  <button class="btn warn sm" type="button" onclick="openReturnEquipmentModal(${eq.item_id}, '${esc(eq.item_name)}')">Return</button>
-                ` : ''}
-                ${isAdmin() ? `
-                  <button class="btn ghost sm" type="button" onclick="openEditEquipmentModal(${eq.item_id})">Edit</button>
-                ` : ''}
-              </td>
-            ` : ''}
-          </tr>
-        `;
-      }).join("");
-    } else {
-      rowsHtml = `<tr><td colspan="6" class="empty">No equipment items found.</td></tr>`;
-    }
-
-    const modalHtml = `
-      <div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
-        <div class="modal wide card" style="max-width:850px;margin:auto;">
-          <div class="modal-head" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-            <div>
-              <h3>Media & Equipment Inventory</h3>
-              <p class="sub" style="margin:0;">Track physical checkout, handover and returns of projectors, audio & lab gear.</p>
-            </div>
-            <button class="btn ghost sm" type="button" onclick="closeModal()">✕</button>
-          </div>
-          <div class="modal-body">
-            ${isAdmin() ? `
-              <div style="display:flex;justify-content:flex-end;margin-bottom:14px">
-                <button class="btn primary sm" type="button" onclick="openAddEquipmentModal()">+ Add Equipment Item</button>
-              </div>
-            ` : ''}
-            <div class="table-wrap">
-              <table class="table">
-                <thead>
-                  <tr>
-                    <th>Item Name</th>
-                    <th>Serial / Tag</th>
-                    <th>Location</th>
-                    <th>Availability</th>
-                    <th>Condition</th>
-                    ${isAdmin() || isStaff() ? `<th>Handover & Actions</th>` : ''}
-                  </tr>
-                </thead>
-                <tbody>${rowsHtml}</tbody>
-              </table>
-            </div>
-            <div class="modal-foot" style="margin-top:16px;text-align:right;">
-              <button class="btn ghost sm" type="button" onclick="closeModal()">Close</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-    $("modalRoot").innerHTML = modalHtml;
-  } catch (err) {
-    toast("Failed to load equipment: " + err.message, "err");
+function openEquipmentModal() {
+  if (!isAdmin()) {
+    toast("Only administrators can manage the campus inventory.", "err");
+    return;
+  }
+  inventoryActiveTab = "equipment";
+  if (state.view !== "resources") {
+    go("resources");
+  } else {
+    renderResources();
   }
 }
 
-function openIssueEquipmentModal(itemId, itemName) {
+function openIssueEquipmentModal(itemId) {
+  const itemName = liveEquipmentInventory.find(item => item.item_id === itemId)?.item_name || "Equipment";
   const root = $("modalRoot");
   root.innerHTML = `
     <div class="modal-backdrop" onclick="if(event.target===this)openEquipmentModal()">
@@ -97,6 +28,14 @@ function openIssueEquipmentModal(itemId, itemName) {
           <label>Approved Booking ID *</label>
           <input id="issueBookingId" class="input" type="number" placeholder="e.g. 101">
           <span class="muted" style="font-size:12px;">Booking must be in 'Approved' state.</span>
+        </div>
+        <div class="field">
+          <label>Quantity *</label>
+          <input id="issueQuantity" class="input" type="number" min="1" value="1" required>
+        </div>
+        <div class="field">
+          <label>Notes</label>
+          <input id="issueNotes" class="input" maxlength="255" placeholder="Handover notes (optional)">
         </div>
 
         <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:20px;">
@@ -110,13 +49,18 @@ function openIssueEquipmentModal(itemId, itemName) {
 
 async function submitIssueEquipment(itemId) {
   const bId = parseInt($("issueBookingId").value, 10);
-  if (!bId) {
-    toast("Please enter an Approved Booking ID.", "err");
+  const quantity = parseInt($("issueQuantity").value, 10);
+  if (!bId || !quantity || quantity < 1) {
+    toast("Enter a valid approved booking ID and issue quantity.", "err");
     return;
   }
 
   try {
-    await api.post(`/equipment/${itemId}/issue`, { booking_id: bId });
+    await api.post(`/equipment/${itemId}/issue`, {
+      booking_id: bId,
+      quantity,
+      notes: $("issueNotes").value.trim() || null
+    });
     toast("Equipment issued successfully!", "ok");
     openEquipmentModal();
   } catch (err) {
@@ -124,7 +68,8 @@ async function submitIssueEquipment(itemId) {
   }
 }
 
-function openReturnEquipmentModal(itemId, itemName) {
+function openReturnEquipmentModal(itemId) {
+  const itemName = liveEquipmentInventory.find(item => item.item_id === itemId)?.item_name || "Equipment";
   const root = $("modalRoot");
   root.innerHTML = `
     <div class="modal-backdrop" onclick="if(event.target===this)openEquipmentModal()">
@@ -133,10 +78,28 @@ function openReturnEquipmentModal(itemId, itemName) {
         <p class="sub">Inspect condition and restore equipment to active inventory.</p>
 
         <div class="field">
+          <label>Booking ID (optional)</label>
+          <input id="returnBookingId" class="input" type="number" min="1" placeholder="Automatically use latest active loan">
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label>Good units returned</label>
+            <input id="returnGoodQty" class="input" type="number" min="0" value="1">
+          </div>
+          <div class="field">
+            <label>Damaged units returned</label>
+            <input id="returnDamagedQty" class="input" type="number" min="0" value="0">
+          </div>
+          <div class="field">
+            <label>Lost units</label>
+            <input id="returnLostQty" class="input" type="number" min="0" value="0">
+          </div>
+        </div>
+        <div class="field">
           <label>Condition on Return *</label>
-          <select id="returnCond" class="input">
-            <option value="Good">Good (Restores Availability)</option>
-            <option value="Damaged">Damaged (Sends to Maintenance)</option>
+          <select id="returnCond" class="input" onchange="setReturnConditionDefaults(this.value)">
+            <option value="Good">Good</option>
+            <option value="Damaged">Damaged</option>
           </select>
         </div>
 
@@ -154,13 +117,34 @@ function openReturnEquipmentModal(itemId, itemName) {
   `;
 }
 
+function setReturnConditionDefaults(condition) {
+  if (condition === "Damaged") {
+    $("returnGoodQty").value = "0";
+    $("returnDamagedQty").value = "1";
+  } else {
+    $("returnGoodQty").value = "1";
+    $("returnDamagedQty").value = "0";
+  }
+}
+
 async function submitReturnEquipment(itemId) {
   const cond = $("returnCond").value;
   const remarks = $("returnRemarks").value.trim();
+  const bookingId = parseInt($("returnBookingId").value, 10) || null;
+  const good = parseInt($("returnGoodQty").value, 10) || 0;
+  const damaged = parseInt($("returnDamagedQty").value, 10) || 0;
+  const lost = parseInt($("returnLostQty").value, 10) || 0;
+  if (good + damaged + lost < 1) {
+    toast("Specify at least one good, damaged, or lost unit.", "err");
+    return;
+  }
 
   try {
     await api.post(`/equipment/${itemId}/return`, {
-      condition_on_return: cond,
+      booking_id: bookingId,
+      returned_good_quantity: good,
+      returned_damaged_quantity: damaged,
+      lost_quantity: lost,
       remarks: remarks || null
     });
     toast(`Equipment returned (${cond}).`, "ok");
@@ -172,43 +156,56 @@ async function submitReturnEquipment(itemId) {
 
 function openAddEquipmentModal() {
   const modalHtml = `
-    <div class="modal-backdrop" onclick="if(event.target===this)openEquipmentModal()">
-      <div class="modal card" style="max-width:460px;margin:auto;">
+    <div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
+      <div class="modal card inventory-form-modal">
         <div class="modal-head" style="display:flex;justify-content:space-between;align-items:center;">
           <h3>Add Equipment Item</h3>
-          <button class="btn ghost sm" type="button" onclick="openEquipmentModal()">✕</button>
+          <button class="btn ghost sm" type="button" onclick="closeModal()">✕</button>
         </div>
-        <div class="modal-body" style="margin-top:14px;">
+        <div class="modal-body">
+          <div class="form-grid">
           <div class="field">
             <label for="eqName">Item Name *</label>
-            <input id="eqName" class="input" placeholder="e.g. Wireless Mic Receiver, Projector">
+            <input id="eqName" class="input" maxlength="150" required placeholder="e.g. Wireless microphone">
           </div>
-
+          <div class="field">
+            <label for="eqCode">Inventory Code</label>
+            <input id="eqCode" class="input" maxlength="50" placeholder="Generated if blank">
+          </div>
           <div class="field">
             <label for="eqSerial">Serial Number / Asset Tag</label>
-            <input id="eqSerial" class="input" placeholder="e.g. EQ-MIC-01">
+            <input id="eqSerial" class="input" maxlength="100" placeholder="Optional unique serial number">
           </div>
-
           <div class="field">
-            <label for="eqLocation">Storage Location</label>
-            <input id="eqLocation" class="input" value="Media Store" placeholder="Store room, Block D...">
-          </div>
-
-          <div class="field">
-            <label for="eqCond">Condition</label>
-            <select id="eqCond" class="input">
-              <option value="Good">Good</option>
-              <option value="Damaged">Damaged</option>
+            <label for="eqCategory">Category</label>
+            <select id="eqCategory" class="input">
+              ${["Sports", "Electronics", "Audio/Visual", "IT", "Accessories", "Other"].map(category => `<option>${category}</option>`).join("")}
             </select>
           </div>
-
           <div class="field">
+            <label for="eqQuantity">Total Quantity *</label>
+            <input id="eqQuantity" class="input" type="number" min="1" value="1" required>
+          </div>
+          <div class="field">
+            <label for="eqUnit">Unit</label>
+            <input id="eqUnit" class="input" maxlength="50" value="Piece">
+          </div>
+          <div class="field">
+            <label for="eqLocation">Storage Location</label>
+            <input id="eqLocation" class="input" maxlength="100" value="Gym">
+          </div>
+          <div class="field">
+            <label for="eqPurchaseDate">Purchase Date</label>
+            <input id="eqPurchaseDate" class="input" type="date">
+          </div>
+          <div class="field inventory-field-full">
             <label for="eqDesc">Description</label>
-            <textarea id="eqDesc" class="input" rows="2" placeholder="Specifications, cables, accessories..."></textarea>
+            <textarea id="eqDesc" class="input" rows="2" placeholder="Specifications, accessories, or notes"></textarea>
+          </div>
           </div>
 
           <div class="modal-foot" style="display:flex;justify-content:flex-end;gap:8px;margin-top:20px;">
-            <button class="btn ghost sm" type="button" onclick="openEquipmentModal()">Back</button>
+            <button class="btn ghost sm" type="button" onclick="closeModal()">Cancel</button>
             <button class="btn primary sm" type="button" onclick="submitEquipment()">Save Item</button>
           </div>
         </div>
@@ -220,27 +217,32 @@ function openAddEquipmentModal() {
 
 async function submitEquipment() {
   const name = $("eqName").value.trim();
+  const itemCode = $("eqCode").value.trim();
   const serial = $("eqSerial").value.trim();
   const loc = $("eqLocation").value.trim();
-  const cond = $("eqCond").value;
   const desc = $("eqDesc").value.trim();
+  const quantity = parseInt($("eqQuantity").value, 10);
 
-  if (!name) {
-    toast("Item name is required.", "err");
+  if (!name || !quantity || quantity < 1) {
+    toast("Enter an equipment name and a valid quantity.", "err");
     return;
   }
 
   try {
     await api.post("/equipment", {
       item_name: name,
+      item_code: itemCode || null,
       serial_no: serial || null,
+      category: $("eqCategory").value,
+      unit: $("eqUnit").value.trim() || "Piece",
+      total_quantity: quantity,
       location: loc || null,
-      condition_status: cond,
-      availability_status: "Available",
-      description: desc || null
+      description: desc || null,
+      purchase_date: $("eqPurchaseDate").value || null
     });
     toast("Equipment added to inventory!", "ok");
-    openEquipmentModal();
+    closeModal();
+    renderResources();
   } catch (err) {
     toast("Error: " + err.message, "err");
   }
@@ -250,37 +252,51 @@ async function openEditEquipmentModal(itemId) {
   try {
     const item = await api.get(`/equipment/${itemId}`);
     const modalHtml = `
-      <div class="modal-backdrop" onclick="if(event.target===this)openEquipmentModal()">
-        <div class="modal card" style="max-width:460px;margin:auto;">
+      <div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
+        <div class="modal card inventory-form-modal">
           <div class="modal-head" style="display:flex;justify-content:space-between;align-items:center;">
             <h3>Edit Equipment</h3>
-            <button class="btn ghost sm" type="button" onclick="openEquipmentModal()">✕</button>
+            <button class="btn ghost sm" type="button" onclick="closeModal()">✕</button>
           </div>
-          <div class="modal-body" style="margin-top:14px;">
+          <div class="modal-body">
+            <div class="form-grid">
             <div class="field">
-              <label for="eqEditName">Item Name</label>
-              <input id="eqEditName" class="input" value="${esc(item.item_name)}">
+              <label for="eqEditName">Item Name *</label>
+              <input id="eqEditName" class="input" maxlength="150" value="${esc(item.item_name)}">
             </div>
-
             <div class="field">
-              <label for="eqEditStatus">Availability Status</label>
-              <select id="eqEditStatus" class="input">
-                <option value="Available" ${item.availability_status==='Available'?'selected':''}>Available</option>
-                <option value="Issued" ${item.availability_status==='Issued'?'selected':''}>Issued</option>
-                <option value="Maintenance" ${item.availability_status==='Maintenance'?'selected':''}>Maintenance</option>
+              <label for="eqEditSerial">Serial / Asset Tag</label>
+              <input id="eqEditSerial" class="input" maxlength="100" value="${esc(item.serial_no || "")}">
+            </div>
+            <div class="field">
+              <label for="eqEditCategory">Category</label>
+              <select id="eqEditCategory" class="input">
+                ${["Sports", "Electronics", "Audio/Visual", "IT", "Accessories", "Other"].map(category => `<option ${item.category === category ? "selected" : ""}>${category}</option>`).join("")}
               </select>
             </div>
-
             <div class="field">
-              <label for="eqEditCond">Condition</label>
-              <select id="eqEditCond" class="input">
-                <option value="Good" ${item.condition_status==='Good'?'selected':''}>Good</option>
-                <option value="Damaged" ${item.condition_status==='Damaged'?'selected':''}>Damaged</option>
-              </select>
+              <label for="eqEditUnit">Unit</label>
+              <input id="eqEditUnit" class="input" maxlength="50" value="${esc(item.unit || "Piece")}">
             </div>
-
+            <div class="field">
+              <label for="eqEditLocation">Storage Location</label>
+              <input id="eqEditLocation" class="input" maxlength="100" value="${esc(item.location || "")}">
+            </div>
+            <div class="field">
+              <label for="eqEditPurchaseDate">Purchase Date</label>
+              <input id="eqEditPurchaseDate" class="input" type="date" value="${esc(item.purchase_date || "")}">
+            </div>
+            <div class="field">
+              <label for="eqEditActive">Inventory Status</label>
+              <select id="eqEditActive" class="input"><option value="true" ${item.is_active ? "selected" : ""}>Active</option><option value="false" ${!item.is_active ? "selected" : ""}>Inactive</option></select>
+            </div>
+            <div class="field inventory-field-full">
+              <label for="eqEditDesc">Description</label>
+              <textarea id="eqEditDesc" class="input" rows="2">${esc(item.description || "")}</textarea>
+            </div>
+            </div>
             <div class="modal-foot" style="display:flex;justify-content:flex-end;gap:8px;margin-top:20px;">
-              <button class="btn ghost sm" type="button" onclick="openEquipmentModal()">Back</button>
+              <button class="btn ghost sm" type="button" onclick="closeModal()">Cancel</button>
               <button class="btn primary sm" type="button" onclick="submitEditEquipment(${itemId})">Save</button>
             </div>
           </div>
@@ -295,24 +311,63 @@ async function openEditEquipmentModal(itemId) {
 
 async function submitEditEquipment(itemId) {
   const name = $("eqEditName").value.trim();
-  const status = $("eqEditStatus").value;
-  const cond = $("eqEditCond").value;
+  if (!name) {
+    toast("Equipment name is required.", "err");
+    return;
+  }
 
   try {
     await api.put(`/equipment/${itemId}`, {
       item_name: name,
-      availability_status: status,
-      condition_status: cond
+      serial_no: $("eqEditSerial").value.trim() || null,
+      category: $("eqEditCategory").value,
+      unit: $("eqEditUnit").value.trim() || "Piece",
+      location: $("eqEditLocation").value.trim(),
+      purchase_date: $("eqEditPurchaseDate").value || null,
+      description: $("eqEditDesc").value.trim(),
+      is_active: $("eqEditActive").value === "true"
     });
     toast("Equipment updated successfully!", "ok");
-    openEquipmentModal();
+    closeModal();
+    renderResources();
   } catch (err) {
     toast("Error: " + err.message, "err");
   }
 }
 
+async function openEquipmentDetails(itemId) {
+  try {
+    const item = await api.get(`/equipment/${itemId}`);
+    const movements = (isAdmin() || isStaff())
+      ? await api.get(`/equipment/${itemId}/movements`)
+      : [];
+    $("modalRoot").innerHTML = `
+      <div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
+        <div class="modal card inventory-detail-modal">
+          <div class="modal-head"><div><h2>${esc(item.item_name)}</h2><p class="muted">${esc(item.item_code)} · ${esc(item.category)}</p></div><button class="btn icon" type="button" onclick="closeModal()">✕</button></div>
+          <div class="modal-body">
+            <div class="inventory-detail-grid">
+              <div><span>Serial / Asset Tag</span><strong>${esc(item.serial_no || "Not recorded")}</strong></div>
+              <div><span>Storage location</span><strong>${esc(item.location || "—")}</strong></div>
+              <div><span>Availability</span><strong>${item.available_quantity ?? 0} / ${item.total_quantity} ${esc(item.unit || "Piece")} available</strong></div>
+              <div><span>Condition</span><strong>${esc(item.condition_status || "Good")}</strong></div>
+              <div><span>Reserved</span><strong>${item.reserved_quantity ?? 0}</strong></div>
+              <div><span>Maintenance / damaged / lost</span><strong>${item.maintenance_quantity ?? 0} / ${item.damaged_quantity ?? 0} / ${item.lost_quantity ?? 0}</strong></div>
+            </div>
+            <p>${esc(item.description || "No description provided.")}</p>
+            ${movements.length ? `<h3>Recent stock activity</h3><div class="schedule">${movements.slice(0, 5).map(movement => `<div class="slot"><time>${fmtShort(movement.created_at)}</time><div><div class="t">${esc(movement.movement_type)} · ${movement.quantity}</div><div class="s">${esc(movement.notes || "")}</div></div></div>`).join("")}</div>` : ""}
+            <div class="modal-foot"><button class="btn ghost" type="button" onclick="closeModal()">Close</button></div>
+          </div>
+        </div>
+      </div>`;
+  } catch (err) {
+    toast(`Failed to load equipment details: ${err.message}`, "err");
+  }
+}
+
 // Global window registrations
 window.openEquipmentModal = openEquipmentModal;
+window.openEquipmentDetails = openEquipmentDetails;
 window.submitEquipment = submitEquipment;
 window.openEditEquipmentModal = openEditEquipmentModal;
 window.submitEditEquipment = submitEditEquipment;

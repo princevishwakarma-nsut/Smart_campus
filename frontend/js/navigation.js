@@ -52,7 +52,10 @@ async function checkBadges() {
   if (document.visibilityState === "hidden" || !api.getToken() || !getCurrentUser()) return;
 
   if (typeof fetchUnreadNotificationCount === "function") {
-    fetchUnreadNotificationCount();
+    await fetchUnreadNotificationCount();
+  }
+  if (typeof refreshNotificationPanel === "function") {
+    refreshNotificationPanel();
   }
   if (typeof isAdmin === "function" && isAdmin()) {
     try {

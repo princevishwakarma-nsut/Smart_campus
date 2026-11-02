@@ -17,15 +17,16 @@ class EquipmentCreate(BaseModel):
     purchase_date: Optional[date] = None
 
     def get_code(self) -> str:
-        code = self.item_code or self.serial_no
+        code = (self.item_code or "").strip() or (self.serial_no or "").strip()
         if not code:
             import uuid
             return f"EQ-{uuid.uuid4().hex[:8].upper()}"
-        return code.strip()
+        return code
 
 
 class EquipmentUpdate(BaseModel):
     item_name: Optional[str] = Field(None, min_length=2, max_length=150)
+    serial_no: Optional[str] = None
     category: Optional[str] = None
     description: Optional[str] = None
     unit: Optional[str] = None
@@ -83,6 +84,7 @@ class EquipmentResponse(BaseModel):
     item_id: int
     item_code: str
     item_name: str
+    serial_no: Optional[str] = None
     category: str
     description: Optional[str] = None
     unit: str = "Piece"

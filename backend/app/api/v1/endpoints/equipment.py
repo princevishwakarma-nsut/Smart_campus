@@ -127,7 +127,7 @@ def get_equipment(
     if not avail:
         raise HTTPException(status_code=404, detail="Equipment item not found.")
 
-    db.execute("SELECT description, location, purchase_date, created_at, updated_at, availability_status, condition_status FROM equipment_items WHERE item_id = %s", (item_id,))
+    db.execute("SELECT serial_no, description, location, purchase_date, created_at, updated_at, availability_status, condition_status FROM equipment_items WHERE item_id = %s", (item_id,))
     meta = db.fetchone()
     avail.update(meta)
     current_availability = (avail.get("availability_status") or "Available").strip()
@@ -172,24 +172,31 @@ def create_equipment(
     current_user: UserContext = Depends(require_roles(Role.ADMIN)),
     db=Depends(get_db)
 ):
-    item_code = req.get_code()
+    serial_no = req.serial_no.strip() if req.serial_no and req.serial_no.strip() else None
+    requested_code = req.item_code.strip() if req.item_code and req.item_code.strip() else None
+    item_code = requested_code or serial_no or req.get_code()
     db.execute("SELECT item_id FROM equipment_items WHERE item_code = %s", (item_code,))
     if db.fetchone():
         raise HTTPException(status_code=400, detail=f"Equipment with code '{item_code}' already exists.")
+    if serial_no:
+        db.execute("SELECT item_id FROM equipment_items WHERE serial_no = %s", (serial_no,))
+        if db.fetchone():
+            raise HTTPException(status_code=400, detail=f"Equipment with serial number '{serial_no}' already exists.")
 
     with transaction_scope() as (conn, cursor):
         cursor.execute(
             """
             INSERT INTO equipment_items (
-                item_code, item_name, category, description, unit,
+                item_code, item_name, serial_no, category, description, unit,
                 total_quantity, damaged_quantity, maintenance_quantity, lost_quantity,
                 location, purchase_date, is_active
             )
-            VALUES (%s, %s, %s, %s, %s, %s, 0, 0, 0, %s, %s, 1)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, 0, 0, 0, %s, %s, 1)
             """,
             (
                 item_code,
                 req.item_name.strip(),
+                serial_no,
                 req.category,
                 req.description.strip() if req.description else None,
                 req.unit.strip() if req.unit else "Piece",
@@ -240,6 +247,14 @@ def update_equipment(
     if req.item_name is not None:
         updates.append("item_name = %s")
         params.append(req.item_name.strip())
+    if "serial_no" in req.model_fields_set:
+        serial_no = req.serial_no.strip() if req.serial_no else None
+        if serial_no:
+            db.execute("SELECT item_id FROM equipment_items WHERE serial_no = %s AND item_id != %s", (serial_no, item_id))
+            if db.fetchone():
+                raise HTTPException(status_code=400, detail=f"Equipment with serial number '{serial_no}' already exists.")
+        updates.append("serial_no = %s")
+        params.append(serial_no)
     if req.category is not None:
         updates.append("category = %s")
         params.append(req.category)

@@ -65,6 +65,7 @@ async function openBookingModal(resourceId) {
           <button class="btn ghost sm" type="button" onclick="closeModal()">✕</button>
         </div>
         <div class="modal-body" style="margin-top:14px;">
+          <div class="form-grid">
           <div class="field">
             <label for="bmStart">Start Date &amp; Time *</label>
             <input id="bmStart" class="input" type="datetime-local" value="${defaultStart}" onchange="checkModalSlotAvailability(${resourceId})">
@@ -73,6 +74,7 @@ async function openBookingModal(resourceId) {
           <div class="field">
             <label for="bmEnd">End Date &amp; Time *</label>
             <input id="bmEnd" class="input" type="datetime-local" value="${defaultEnd}" onchange="checkModalSlotAvailability(${resourceId})">
+          </div>
           </div>
 
           <div id="slotFeedback" class="hint neutral" style="margin-top:8px">
@@ -268,6 +270,7 @@ async function renderAllBookings() {
 
 async function renderBookingPage(kind) {
   const statePage = bookingPageState[kind];
+  if (!liveCategories.length && typeof fetchCategories === "function") await fetchCategories();
   const offset = (statePage.page - 1) * 20;
   const params = {
     offset,
@@ -276,11 +279,17 @@ async function renderBookingPage(kind) {
   };
   const status = $(`${kind}BkStatus`)?.value || "All";
   const bookingType = $(`${kind}BkType`)?.value || "All";
+  const categoryId = $(`${kind}BkCategory`)?.value || "";
   const q = $(`${kind}BkSearch`)?.value.trim();
   const from = $(`${kind}BkFrom`)?.value;
   const to = $(`${kind}BkTo`)?.value;
+  if (from && to && from > to) {
+    toast("The start date must be on or before the end date.", "err");
+    return;
+  }
   if (status !== "All") params.status = status;
   if (bookingType !== "All") params.booking_type = bookingType;
+  if (categoryId) params.category_id = categoryId;
   if (q) params.q = q;
   if (from) params.start_date = from;
   if (to) params.end_date = to;
@@ -289,26 +298,35 @@ async function renderBookingPage(kind) {
     const result = await api.get("/bookings/page", params);
     statePage.total = result.total;
     const bookings = result.items;
+    const activeFilters = [status !== "All", bookingType !== "All", Boolean(categoryId), Boolean(q), Boolean(from), Boolean(to)].filter(Boolean).length;
+    const categoryOptions = (liveCategories || []).map(category => `
+      <option value="${category.category_id}" ${String(category.category_id) === categoryId ? "selected" : ""}>${esc(category.category_name)}</option>
+    `).join("");
     const controls = `
-      <div class="panel-head">
-        <h3>${kind === "all" ? "Campus bookings" : "My bookings"} (${result.total})</h3>
-        <div class="actions">
-          <input id="${kind}BkSearch" class="input sm" value="${esc(q || "")}" placeholder="Search bookings" onchange="changeBookingFilters('${kind}')">
-          <select id="${kind}BkStatus" class="input sm" onchange="changeBookingFilters('${kind}')">
+      <header class="booking-list-heading">
+        <div><h2>${kind === "all" ? "Campus bookings" : "My bookings"}</h2><p class="muted">Search and filter your complete booking history.</p></div>
+        <span class="booking-count">${result.total} ${result.total === 1 ? "booking" : "bookings"}</span>
+      </header>
+      <div class="booking-toolbar" aria-label="Booking filters">
+          <input id="${kind}BkSearch" class="input sm booking-search" value="${esc(q || "")}" placeholder="Search bookings..." aria-label="Search bookings" onchange="changeBookingFilters('${kind}')">
+          <select id="${kind}BkStatus" class="input sm" aria-label="Booking status" onchange="changeBookingFilters('${kind}')">
             ${["All","Pending","Approved","Rejected","Cancelled"].map(value => `<option ${status === value ? "selected" : ""}>${value}</option>`).join("")}
           </select>
-          <select id="${kind}BkType" class="input sm" onchange="changeBookingFilters('${kind}')">
+          <select id="${kind}BkType" class="input sm" aria-label="Booking type" onchange="changeBookingFilters('${kind}')">
             ${["All","Space","Equipment","Combined"].map(value => `<option ${bookingType === value ? "selected" : ""}>${value}</option>`).join("")}
+          </select>
+          <select id="${kind}BkCategory" class="input sm" aria-label="Resource category" onchange="changeBookingFilters('${kind}')">
+            <option value="">All resource categories</option>${categoryOptions}
           </select>
           <input id="${kind}BkFrom" class="input sm" type="date" value="${esc(from || "")}" aria-label="From date" onchange="changeBookingFilters('${kind}')">
           <input id="${kind}BkTo" class="input sm" type="date" value="${esc(to || "")}" aria-label="To date" onchange="changeBookingFilters('${kind}')">
-          <select id="${kind}BkSort" class="input sm" onchange="changeBookingFilters('${kind}', false)">
+          <select id="${kind}BkSort" class="input sm" aria-label="Sort bookings" onchange="changeBookingFilters('${kind}', false)">
             <option value="created_desc" ${params.sort_by === "created_desc" ? "selected" : ""}>Newest first</option>
             <option value="created_asc" ${params.sort_by === "created_asc" ? "selected" : ""}>Oldest first</option>
             <option value="start_asc" ${params.sort_by === "start_asc" ? "selected" : ""}>Schedule earliest</option>
             <option value="start_desc" ${params.sort_by === "start_desc" ? "selected" : ""}>Schedule latest</option>
           </select>
-        </div>
+          ${activeFilters ? `<button class="btn ghost sm" type="button" onclick="clearBookingFilters('${kind}')">Clear filters (${activeFilters})</button>` : ""}
       </div>`;
     const rows = bookings.map(booking => {
       const firstResource = booking.resources[0] || {};
@@ -316,23 +334,25 @@ async function renderBookingPage(kind) {
       const resources = (booking.resources || []).map(resource => resource.resource_name).filter(Boolean).join(", ");
       const locationLabel = resources || equipmentNames || "No linked resources";
       const start = booking.start_time || firstResource.start_time;
+      const end = booking.end_time || firstResource.end_time;
+      const locations = [...new Set((booking.resources || []).map(resource => resource.location).filter(Boolean))].join(", ");
       const statusClass = booking.status === "Approved" ? "ok" : (booking.status === "Pending" ? "warn" : "bad");
       if (kind === "my") {
-        return `<div class="card">
+        return `<article class="card booking-card">
           <div class="card-head"><div><span class="code">BK-${booking.booking_id}</span><h3>${esc(locationLabel)}</h3></div><span class="pill ${statusClass}">${esc(booking.status)}</span></div>
-          <p class="muted" style="margin:2px 0">${esc(booking.purpose)}</p>
-          <div class="meta">
-            <span class="tag">Schedule: ${start ? fmt(start) : "—"}</span>
-            ${firstResource.location ? `<span class="tag">Location: ${esc(firstResource.location)}</span>` : ""}
-            <span class="tag">Requested: ${booking.created_at ? fmt(booking.created_at) : "—"}</span>
+          <p class="booking-purpose">${esc(booking.purpose)}</p>
+          <div class="booking-meta">
+            <span><b>When</b>${start ? `${fmt(start)}${end ? ` – ${fmtShort(end)}` : ""}` : "Not scheduled"}</span>
+            ${locations ? `<span><b>Location</b>${esc(locations)}</span>` : ""}
+            <span><b>Requested</b>${booking.created_at ? fmt(booking.created_at) : "—"}</span>
           </div>
-          ${equipmentNames ? `<div class="hint neutral" style="margin-top:8px">Equipment: ${esc(equipmentNames)}</div>` : ""}
-          ${booking.remarks ? `<div class="hint neutral" style="margin:8px 0;font-size:11.5px">Decision: ${esc(booking.remarks)}</div>` : ""}
+          ${equipmentNames ? `<div class="booking-equipment">Equipment: ${esc(equipmentNames)}</div>` : ""}
+          ${booking.remarks ? `<div class="booking-decision">Decision: ${esc(booking.remarks)}</div>` : ""}
           <div class="card-foot">
             <button class="btn ghost sm" type="button" onclick="openBookingDetails(${booking.booking_id})">Details</button>
             ${booking.status === "Pending" || booking.status === "Approved" ? `<button class="btn bad sm" type="button" onclick="openCancelModal(${booking.booking_id})">Cancel</button>` : ""}
           </div>
-        </div>`;
+        </article>`;
       }
       return `<tr>
         <td><span class="code">BK-${booking.booking_id}</span></td>
@@ -355,9 +375,9 @@ async function renderBookingPage(kind) {
       </div>
     </div>`;
     const content = kind === "my"
-      ? `<div class="grid">${rows || `<div class="empty">No bookings match these filters. Your pending, approved, rejected and cancelled history is included here.</div>`}</div>`
+      ? `<div class="booking-grid">${rows || `<div class="empty">No bookings match these filters. Your pending, approved, rejected and cancelled history is included here.</div>`}</div>`
       : `<div style="overflow:auto"><table><thead><tr><th>ID</th><th>Requester</th><th>Resource / equipment</th><th>Schedule</th><th>Purpose</th><th>Status</th><th>Actions</th></tr></thead><tbody>${rows || `<tr><td colspan="7" class="empty">No bookings match these filters.</td></tr>`}</tbody></table></div>`;
-    $("view").innerHTML = `<div class="panel">${controls}${content}${pagination}</div>`;
+    $("view").innerHTML = `<div class="panel booking-list-panel">${controls}${content}${pagination}</div>`;
   } catch (err) {
     $("view").innerHTML = `<div class="empty">Failed to load bookings: ${esc(err.message)}</div>`;
   }
@@ -365,6 +385,11 @@ async function renderBookingPage(kind) {
 
 function changeBookingFilters(kind, resetPage = true) {
   if (resetPage) bookingPageState[kind].page = 1;
+  renderBookingPage(kind);
+}
+
+function clearBookingFilters(kind) {
+  bookingPageState[kind].page = 1;
   renderBookingPage(kind);
 }
 

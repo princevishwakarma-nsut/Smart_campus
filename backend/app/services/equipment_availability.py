@@ -16,7 +16,7 @@ def calculate_equipment_availability(
     """
     cursor.execute(
         """
-        SELECT item_id, item_code, item_name, category, description, unit,
+        SELECT item_id, item_code, item_name, serial_no, category, description, unit,
                total_quantity, damaged_quantity, maintenance_quantity, lost_quantity,
                location, is_active, availability_status, condition_status
         FROM equipment_items
@@ -33,6 +33,7 @@ def calculate_equipment_availability(
             "item_id": eq["item_id"],
             "item_code": eq["item_code"],
             "item_name": eq["item_name"],
+            "serial_no": eq["serial_no"],
             "category": eq["category"],
             "unit": eq["unit"],
             "total_quantity": eq["total_quantity"],
@@ -117,6 +118,7 @@ def calculate_equipment_availability(
         "item_id": eq["item_id"],
         "item_code": eq["item_code"],
         "item_name": eq["item_name"],
+        "serial_no": eq["serial_no"],
         "category": eq["category"],
         "unit": eq["unit"],
         "total_quantity": eq["total_quantity"],
@@ -150,7 +152,7 @@ def get_all_equipment_with_availability(
     Otherwise defaults to current time window (now to now + 2 hours).
     """
     query = """
-        SELECT item_id, item_code, item_name, category, description, unit,
+        SELECT item_id, item_code, item_name, serial_no, category, description, unit,
                total_quantity, damaged_quantity, maintenance_quantity, lost_quantity,
                location, purchase_date, is_active, availability_status, condition_status,
                created_at, updated_at

@@ -362,6 +362,25 @@ def create_booking_transaction(
     cursor.execute("SELECT name, email FROM users WHERE user_id = %s", (user_id,))
     requester_info = cursor.fetchone()
     requester_label = requester_info["name"] if (requester_info and requester_info.get("name")) else f"User #{user_id}"
+    cursor.execute(
+        """
+        SELECT
+            (SELECT GROUP_CONCAT(DISTINCT r.resource_name ORDER BY r.resource_name SEPARATOR ', ')
+             FROM booking_resources br JOIN resources r ON r.resource_id = br.resource_id
+             WHERE br.booking_id = %s) AS resource_names,
+            (SELECT GROUP_CONCAT(DISTINCT ei.item_name ORDER BY ei.item_name SEPARATOR ', ')
+             FROM booking_equipment_items bei JOIN equipment_items ei ON ei.item_id = bei.item_id
+             WHERE bei.booking_id = %s) AS equipment_names
+        """,
+        (booking_id, booking_id)
+    )
+    booking_items = cursor.fetchone()
+    item_context = ", ".join(
+        value for value in (
+            booking_items.get("resource_names"),
+            booking_items.get("equipment_names")
+        ) if value
+    ) or "campus resources"
 
     # Notification for the requester
     create_notification(
@@ -384,7 +403,7 @@ def create_booking_transaction(
                 create_notification(
                     cursor,
                     user_id=adm["user_id"],
-                    message=f"New booking request BK-{booking_id} for '{purpose}' submitted by {requester_label} requires your approval.",
+                    message=f"New booking request BK-{booking_id} for '{purpose}' ({item_context}) submitted by {requester_label} requires your approval.",
                     notif_type="Alert",
                     booking_id=booking_id,
                     audience="Admin"

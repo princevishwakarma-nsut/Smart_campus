@@ -1,5 +1,7 @@
 let liveResources = [];
 let liveCategories = [];
+let liveEquipmentInventory = [];
+let inventoryActiveTab = "resources";
 
 async function fetchResources(params = {}) {
   try {
@@ -125,72 +127,145 @@ function clearFilters() {
 async function renderResources() {
   const host = $("view");
   host.innerHTML = `<div class="empty">Loading inventory...</div>`;
-  
-  if (!liveCategories.length) await fetchCategories();
-  await fetchResources();
+  $("topActions").innerHTML = "";
 
-  $("topActions").innerHTML = `
-    <button class="btn primary" type="button" onclick="openResourceModal()">+ Add resource</button>
-  `;
+  try {
+    const [categories, resources, equipment] = await Promise.all([
+      api.get("/categories"),
+      api.get("/resources"),
+      api.get("/equipment")
+    ]);
+    liveCategories = categories;
+    liveResources = resources;
+    liveEquipmentInventory = equipment;
+    const resourceCategories = liveCategories.map(category => `
+      <option value="${category.category_id}">${esc(category.category_name)}</option>
+    `).join("");
+    const equipmentCategories = [...new Set(liveEquipmentInventory.map(item => item.category).filter(Boolean))]
+      .sort().map(category => `<option value="${esc(category)}">${esc(category)}</option>`).join("");
+    const activeTab = inventoryActiveTab === "equipment" ? "equipment" : "resources";
+    const resourceRows = liveResources.map(resource => {
+      const statePill = resource.status === "Available"
+        ? `<span class="pill ok">Available</span>`
+        : `<span class="pill ${resource.status === "Maintenance" ? "warn" : "bad"}">${esc(resource.status)}</span>`;
+      return `<tr data-category="${resource.category_id}" data-status="${esc(resource.status)}">
+        <td><span class="code">${esc(resource.resource_code || "—")}</span></td>
+        <td><div class="cell-strong">${esc(resource.resource_name)}</div><div class="muted">${esc(resource.description || "")}</div></td>
+        <td>${esc(resource.category_name || "General")}</td>
+        <td>${esc(resource.location || "—")}</td>
+        <td>${resource.capacity ? esc(resource.capacity) : "—"}</td>
+        <td>${statePill}</td>
+        <td><div class="actions">
+          <button class="btn ghost sm" type="button" onclick="openResourceDetails(${resource.resource_id})">Details</button>
+          <button class="btn ghost sm" type="button" onclick="openResourceSchedule(${resource.resource_id})">Availability</button>
+          <button class="btn primary sm" type="button" onclick="openResourceModal(${resource.resource_id})">Edit</button>
+        </div></td>
+      </tr>`;
+    }).join("");
+    const equipmentRows = liveEquipmentInventory.map(item => {
+      const availability = item.is_active ? (item.availability_status || "Available") : "Inactive";
+      const availabilityClass = availability === "Available" ? "ok" : (availability === "Inactive" ? "bad" : "warn");
+      const condition = item.condition_status || (item.damaged_quantity ? "Damaged" : "Good");
+      return `<tr data-category="${esc(item.category || "Other")}" data-status="${esc(availability)}" data-condition="${esc(condition)}">
+        <td><div class="cell-strong">${esc(item.item_name)}</div><div class="code">${esc(item.item_code || "—")}</div></td>
+        <td>${esc(item.serial_no || "—")}</td>
+        <td>${esc(item.category || "Other")}</td>
+        <td>${esc(item.location || "—")}</td>
+        <td>${item.available_quantity ?? 0} / ${item.total_quantity} ${esc(item.unit || "Piece")}</td>
+        <td><span class="pill ${availabilityClass}">${esc(availability)}</span></td>
+        <td><span class="pill ${condition === "Good" ? "ok" : "warn"}">${esc(condition)}</span></td>
+        <td><div class="actions">
+          <button class="btn ghost sm" type="button" onclick="openEquipmentDetails(${item.item_id})">Details</button>
+          ${item.available_quantity > 0 ? `<button class="btn ok sm" type="button" onclick="openIssueEquipmentModal(${item.item_id})">Issue</button>` : ""}
+          ${item.availability_status === "Issued" || item.reserved_quantity > 0 ? `<button class="btn warn sm" type="button" onclick="openReturnEquipmentModal(${item.item_id})">Return</button>` : ""}
+          <button class="btn primary sm" type="button" onclick="openEditEquipmentModal(${item.item_id})">Edit</button>
+        </div></td>
+      </tr>`;
+    }).join("");
 
-  let html = `
-    <div class="panel">
-      <div class="panel-head">
-        <h3>Campus Resources (${liveResources.length})</h3>
-        <div class="actions">
-          <input id="rq" class="input sm" placeholder="Filter inventory..." oninput="filterResourceTable(this.value)">
-        </div>
+    host.innerHTML = `
+      <div class="inventory-tabs" role="tablist" aria-label="Inventory type">
+        <button type="button" role="tab" aria-selected="${activeTab === "resources"}" class="${activeTab === "resources" ? "active" : ""}" onclick="setInventoryTab('resources')">
+          Resources <span class="inventory-count">${liveResources.length}</span>
+        </button>
+        <button type="button" role="tab" aria-selected="${activeTab === "equipment"}" class="${activeTab === "equipment" ? "active" : ""}" onclick="setInventoryTab('equipment')">
+          Equipment <span class="inventory-count">${liveEquipmentInventory.length}</span>
+        </button>
       </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Code</th>
-            <th>Name</th>
-            <th>Category</th>
-            <th>Location</th>
-            <th>Capacity</th>
-            <th>Status</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody id="resTableBody">
-  `;
-
-  for (const r of liveResources) {
-    const isAvail = r.status === "Available";
-    const statusPill = isAvail
-      ? `<span class="pill ok">Available</span>`
-      : `<span class="pill ${r.status === 'Maintenance' ? 'warn' : 'bad'}">${esc(r.status)}</span>`;
-
-    html += `
-      <tr>
-        <td><span class="code">${esc(r.resource_code || '—')}</span></td>
-        <td class="cell-strong">${esc(r.resource_name)}</td>
-        <td><span class="tag">${esc(r.category_name || 'General')}</span></td>
-        <td>${esc(r.location || '—')}</td>
-        <td>${r.capacity ? esc(r.capacity) : '—'}</td>
-        <td>${statusPill}</td>
-        <td>
-          <div class="actions">
-            <button class="btn ghost sm" type="button" onclick="openResourceModal(${r.resource_id})">Edit</button>
-            ${isAvail ? `<button class="btn bad sm" type="button" onclick="quickToggleStatus(${r.resource_id}, 'Maintenance')">Maint.</button>`
-                      : `<button class="btn ok sm" type="button" onclick="quickToggleStatus(${r.resource_id}, 'Available')">Enable</button>`}
+      ${activeTab === "resources" ? `
+        <section class="panel inventory-panel">
+          <div class="inventory-heading">
+            <div><h2>Campus Resources</h2><p class="muted">Manage bookable spaces, facilities, features and operational status.</p></div>
+            <button class="btn primary" type="button" onclick="openResourceModal()">+ Add Resource</button>
           </div>
-        </td>
-      </tr>
-    `;
+          <div class="inventory-filters">
+            <input id="resourceInventorySearch" class="input sm" placeholder="Search resources..." oninput="filterResourceInventory()">
+            <select id="resourceInventoryCategory" class="input sm" onchange="filterResourceInventory()"><option value="">All categories</option>${resourceCategories}</select>
+            <select id="resourceInventoryStatus" class="input sm" onchange="filterResourceInventory()"><option value="">All availability</option><option>Available</option><option>Maintenance</option><option>Inactive</option></select>
+            <span class="inventory-result-count" id="resourceInventoryCount">${liveResources.length} resources</span>
+          </div>
+          <div class="table-wrap inventory-table"><table><thead><tr><th>Code</th><th>Resource</th><th>Category</th><th>Location</th><th>Capacity</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody id="resTableBody">${resourceRows || `<tr><td class="empty" colspan="7">No resources found.</td></tr>`}</tbody>
+          </table></div>
+        </section>
+      ` : `
+        <section class="panel inventory-panel">
+          <div class="inventory-heading">
+            <div><h2>Equipment Inventory</h2><p class="muted">Track physical items, stock availability, condition and issue/return activity.</p></div>
+            <button class="btn primary" type="button" onclick="openAddEquipmentModal()">+ Add Equipment Item</button>
+          </div>
+          <div class="inventory-filters">
+            <input id="equipmentInventorySearch" class="input sm" placeholder="Search equipment..." oninput="filterEquipmentInventory()">
+            <select id="equipmentInventoryCategory" class="input sm" onchange="filterEquipmentInventory()"><option value="">All categories</option>${equipmentCategories}</select>
+            <select id="equipmentInventoryStatus" class="input sm" onchange="filterEquipmentInventory()"><option value="">All availability</option><option>Available</option><option>Issued</option><option>Maintenance</option><option>Inactive</option></select>
+            <select id="equipmentInventoryCondition" class="input sm" onchange="filterEquipmentInventory()"><option value="">All conditions</option><option>Good</option><option>Damaged</option></select>
+            <span class="inventory-result-count" id="equipmentInventoryCount">${liveEquipmentInventory.length} equipment items</span>
+          </div>
+          <div class="table-wrap inventory-table"><table><thead><tr><th>Item</th><th>Serial / Tag</th><th>Category</th><th>Storage</th><th>Available / Total</th><th>Availability</th><th>Condition</th><th>Actions</th></tr></thead>
+            <tbody id="equipmentInventoryBody">${equipmentRows || `<tr><td class="empty" colspan="8">No equipment items found.</td></tr>`}</tbody>
+          </table></div>
+        </section>
+      `}`;
+  } catch (err) {
+    host.innerHTML = `<div class="empty">Failed to load inventory: ${esc(err.message)}</div>`;
   }
-
-  html += `</tbody></table></div>`;
-  host.innerHTML = html;
 }
 
-function filterResourceTable(val) {
-  const q = val.toLowerCase();
-  const rows = document.querySelectorAll("#resTableBody tr");
-  rows.forEach(tr => {
-    tr.style.display = tr.textContent.toLowerCase().includes(q) ? "" : "none";
+function setInventoryTab(tab) {
+  inventoryActiveTab = tab;
+  renderResources();
+}
+
+function filterResourceInventory() {
+  const q = ($("resourceInventorySearch")?.value || "").trim().toLowerCase();
+  const category = $("resourceInventoryCategory")?.value || "";
+  const status = $("resourceInventoryStatus")?.value || "";
+  let visible = 0;
+  document.querySelectorAll("#resTableBody tr[data-category]").forEach(row => {
+    const matches = row.textContent.toLowerCase().includes(q) &&
+      (!category || row.dataset.category === category) &&
+      (!status || row.dataset.status === status);
+    row.hidden = !matches;
+    if (matches) visible += 1;
   });
+  if ($("resourceInventoryCount")) $("resourceInventoryCount").textContent = `${visible} of ${liveResources.length} resources`;
+}
+
+function filterEquipmentInventory() {
+  const q = ($("equipmentInventorySearch")?.value || "").trim().toLowerCase();
+  const category = $("equipmentInventoryCategory")?.value || "";
+  const status = $("equipmentInventoryStatus")?.value || "";
+  const condition = $("equipmentInventoryCondition")?.value || "";
+  let visible = 0;
+  document.querySelectorAll("#equipmentInventoryBody tr[data-category]").forEach(row => {
+    const matches = row.textContent.toLowerCase().includes(q) &&
+      (!category || row.dataset.category === category) &&
+      (!status || row.dataset.status === status) &&
+      (!condition || row.dataset.condition === condition);
+    row.hidden = !matches;
+    if (matches) visible += 1;
+  });
+  if ($("equipmentInventoryCount")) $("equipmentInventoryCount").textContent = `${visible} of ${liveEquipmentInventory.length} equipment items`;
 }
 
 async function quickToggleStatus(id, newStatus) {
@@ -221,33 +296,30 @@ async function openResourceModal(id) {
           <button class="btn icon" type="button" onclick="closeModal()">✕</button>
         </div>
         <div class="modal-body">
-          <label for="mrName">Resource Name *</label>
-          <input id="mrName" class="input" value="${r ? esc(r.resource_name) : ''}" placeholder="e.g. Seminar Hall C">
-
-          <label for="mrCode">Resource Code *</label>
-          <input id="mrCode" class="input" value="${r ? esc(r.resource_code || '') : ''}" placeholder="e.g. SH-103">
-
-          <label for="mrCategory">Category *</label>
-          <select id="mrCategory" class="input">${catOpts}</select>
-
-          <label for="mrLocation">Location *</label>
-          <input id="mrLocation" class="input" value="${r ? esc(r.location || '') : ''}" placeholder="e.g. Block A, 2nd Floor">
-
-          <label for="mrCap">Capacity</label>
-          <input id="mrCap" class="input" type="number" min="1" value="${r && r.capacity ? esc(r.capacity) : ''}" placeholder="e.g. 60">
-
-          <label for="mrStatus">Operational Status</label>
-          <select id="mrStatus" class="input">
-            <option value="Available" ${r && r.status === 'Available' ? 'selected' : ''}>Available</option>
-            <option value="Maintenance" ${r && r.status === 'Maintenance' ? 'selected' : ''}>Maintenance</option>
-            <option value="Inactive" ${r && r.status === 'Inactive' ? 'selected' : ''}>Inactive</option>
-          </select>
-
-          <label for="mrDesc">Description</label>
-          <textarea id="mrDesc" class="input" rows="3" placeholder="Facilities, display, audio, rules...">${r ? esc(r.description || '') : ''}</textarea>
-
-          <label for="mrFeatures">Features (comma separated)</label>
-          <input id="mrFeatures" class="input" value="${r && r.features ? esc(r.features.join(', ')) : ''}" placeholder="e.g. Smart Board, Projector, AC, Workstations">
+          <div class="form-grid">
+            <div class="field"><label for="mrName">Resource Name *</label>
+              <input id="mrName" class="input" value="${r ? esc(r.resource_name) : ''}" placeholder="e.g. Seminar Hall C"></div>
+            <div class="field"><label for="mrCode">Resource Code *</label>
+              <input id="mrCode" class="input" value="${r ? esc(r.resource_code || '') : ''}" placeholder="e.g. SH-103"></div>
+            <div class="field"><label for="mrCategory">Category *</label>
+              <select id="mrCategory" class="input">${catOpts}</select></div>
+            <div class="field"><label for="mrLocation">Location *</label>
+              <input id="mrLocation" class="input" value="${r ? esc(r.location || '') : ''}" placeholder="e.g. Block A, 2nd Floor"></div>
+            <div class="field"><label for="mrHours">Operating Hours</label>
+              <input id="mrHours" class="input" value="${r ? esc(r.operating_hours || '') : ''}" maxlength="255" placeholder="e.g. Mon-Fri, 08:00-20:00"></div>
+            <div class="field"><label for="mrCap">Capacity</label>
+              <input id="mrCap" class="input" type="number" min="1" value="${r && r.capacity ? esc(r.capacity) : ''}" placeholder="e.g. 60"></div>
+            <div class="field"><label for="mrStatus">Operational Status</label>
+              <select id="mrStatus" class="input">
+                <option value="Available" ${r && r.status === 'Available' ? 'selected' : ''}>Available</option>
+                <option value="Maintenance" ${r && r.status === 'Maintenance' ? 'selected' : ''}>Maintenance</option>
+                <option value="Inactive" ${r && r.status === 'Inactive' ? 'selected' : ''}>Inactive</option>
+              </select></div>
+            <div class="field inventory-field-full"><label for="mrDesc">Description</label>
+              <textarea id="mrDesc" class="input" rows="2" placeholder="Facilities, display, audio, rules...">${r ? esc(r.description || '') : ''}</textarea></div>
+            <div class="field inventory-field-full"><label for="mrFeatures">Features (comma separated)</label>
+              <input id="mrFeatures" class="input" value="${r && r.features ? esc(r.features.join(', ')) : ''}" placeholder="e.g. Smart Board, Projector, AC, Workstations"></div>
+          </div>
 
           <div class="modal-foot">
             <button class="btn ghost" type="button" onclick="closeModal()">Cancel</button>
@@ -267,6 +339,7 @@ async function saveResource(id) {
   const code = $("mrCode").value.trim();
   const catId = Number($("mrCategory").value);
   const location = $("mrLocation").value.trim();
+  const operatingHours = $("mrHours").value.trim();
   const capVal = $("mrCap").value;
   const capacity = capVal ? parseInt(capVal, 10) : null;
   const status = $("mrStatus").value;
@@ -292,6 +365,7 @@ async function saveResource(id) {
     resource_name: name,
     resource_code: code || null,
     location: location || null,
+    operating_hours: operatingHours || null,
     capacity: capacity,
     status: status,
     description: desc || null,
@@ -314,6 +388,32 @@ async function saveResource(id) {
     }
   } catch (err) {
     toast("Error saving resource: " + err.message, "err");
+  }
+}
+
+async function openResourceDetails(id) {
+  try {
+    const resource = await api.get(`/resources/${id}`);
+    $("modalRoot").innerHTML = `
+      <div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
+        <div class="modal card inventory-detail-modal">
+          <div class="modal-head"><div><h2>${esc(resource.resource_name)}</h2><p class="muted">${esc(resource.resource_code)} · ${esc(resource.category_name || "General")}</p></div><button class="btn icon" type="button" onclick="closeModal()">✕</button></div>
+          <div class="modal-body">
+            <div class="inventory-detail-grid">
+              <div><span>Location</span><strong>${esc(resource.location || "—")}</strong></div>
+              <div><span>Capacity</span><strong>${resource.capacity || "Not specified"}</strong></div>
+              <div><span>Operating hours</span><strong>${esc(resource.operating_hours || "Not specified")}</strong></div>
+              <div><span>Status</span><strong>${esc(resource.status)}</strong></div>
+            </div>
+            <p>${esc(resource.description || "No description provided.")}</p>
+            <h3>Features</h3>
+            <div class="meta">${(resource.features || []).map(feature => `<span class="tag">${esc(feature)}</span>`).join("") || `<span class="muted">No features listed.</span>`}</div>
+            <div class="modal-foot"><button class="btn ghost" type="button" onclick="closeModal()">Close</button><button class="btn primary" type="button" onclick="closeModal();openResourceSchedule(${resource.resource_id})">View availability</button></div>
+          </div>
+        </div>
+      </div>`;
+  } catch (err) {
+    toast(`Failed to load resource details: ${err.message}`, "err");
   }
 }
 
@@ -386,10 +486,13 @@ async function openResourceSchedule(id) {
 
 // Global window registrations
 window.renderResources = renderResources;
+window.setInventoryTab = setInventoryTab;
 window.renderCatalog = renderCatalog;
 window.openResourceModal = openResourceModal;
 window.saveResource = saveResource;
-window.filterResourceTable = filterResourceTable;
+window.filterResourceInventory = filterResourceInventory;
+window.filterEquipmentInventory = filterEquipmentInventory;
+window.openResourceDetails = openResourceDetails;
 window.quickToggleStatus = quickToggleStatus;
 window.openResourceSchedule = openResourceSchedule;
 window.onFilterChange = onFilterChange;

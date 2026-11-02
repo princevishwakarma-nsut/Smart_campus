@@ -16,9 +16,6 @@ async function renderAdminDash() {
       <option value="90" ${dashboardRange === "90" ? "selected" : ""}>Last 90 days</option>
       <option value="all" ${dashboardRange === "all" ? "selected" : ""}>All time</option>
     </select>
-    <button class="btn ghost sm" type="button" onclick="openSocietiesModal()">Societies</button>
-    <button class="btn ghost sm" type="button" onclick="openEquipmentModal()">Equipment</button>
-    <button class="btn ghost sm" type="button" onclick="openNotificationsModal()">Notifications</button>
   `;
 
   try {

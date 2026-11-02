@@ -116,8 +116,11 @@ For an existing database, apply the notification audience migration from the pro
 ```bash
 python database/migrations/apply_007_notifications.py
 python database/migrations/apply_008_settings.py
+python database/migrations/apply_009_resource_hours.py
+python database/migrations/apply_010_blackout_management.py
+python database/migrations/apply_011_blackout_exclusions.py
 ```
-Migration 008 adds persisted Admin-managed booking rules (academic year and timetable enforcement, advance window, duration limits, approval workflow, and cancellation cutoff). It is additive and preserves existing booking and inventory data. After applying it, configure the rules from **Admin → Settings**. Authentication tokens and cached users are stored per browser tab, so separate tabs can use separate accounts.
+Migration 008 adds persisted Admin-managed booking rules (academic year and timetable enforcement, advance window, duration limits, approval workflow, and cancellation cutoff). Migration 009 adds the optional resource operating-hours field. Migration 010 adds linked bulk blackout metadata, reason categories and explanations, and historical cancellation state. Migration 011 stores category-selection exclusions so bulk blackout edits preserve individually removed resources. These migrations are additive and preserve existing booking and inventory data. After applying migration 008, configure booking rules from **Admin → Settings**. Authentication tokens and cached users are stored per browser tab, so separate tabs can use separate accounts.
 `CAMPUS_TIMEZONE` sets the IANA timezone used by the backend to classify today's and upcoming schedule bookings; it defaults to `Asia/Kolkata`.
 
 ### D. Seed the Initial Admin Account (if not already seeded)

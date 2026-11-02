@@ -11,6 +11,11 @@ class NotificationResponse(BaseModel):
     type: str  # Info, Reminder, Approval, Alert
     is_read: bool
     created_at: Optional[datetime] = None
+    requester_name: Optional[str] = None
+    resource_name: Optional[str] = None
+    equipment_name: Optional[str] = None
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
 
     class Config:
         from_attributes = True

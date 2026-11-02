@@ -124,6 +124,25 @@ def create_maintenance(
         if req.item_id:
             cursor.execute("UPDATE equipment_items SET availability_status = 'Maintenance' WHERE item_id = %s", (req.item_id,))
 
+        cursor.execute(
+            "SELECT user_id FROM users WHERE role = 'Admin' AND is_active = 1 AND user_id != %s",
+            (current_user.user_id,)
+        )
+        affected_admins = cursor.fetchall()
+        affected_item = res_name if req.resource_id else None
+        if req.item_id:
+            cursor.execute("SELECT item_name FROM equipment_items WHERE item_id = %s", (req.item_id,))
+            equipment = cursor.fetchone()
+            affected_item = equipment["item_name"] if equipment else "Equipment"
+        for admin in affected_admins:
+            create_notification(
+                cursor,
+                user_id=admin["user_id"],
+                message=f"New maintenance ticket #{maint_id} for {affected_item or 'campus equipment'}: {req.issue_description}",
+                notif_type="Alert",
+                audience="Admin"
+            )
+
         log_system_audit(
             cursor,
             entity_type="Maintenance",

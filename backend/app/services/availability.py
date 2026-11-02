@@ -49,9 +49,11 @@ def check_resource_availability(
     # 2. Blackout periods check (maintenance or campus holidays)
     cursor.execute(
         """
-        SELECT blackout_id, reason, start_datetime, end_datetime, maintenance_id
+        SELECT blackout_id, reason, start_datetime, end_datetime, maintenance_id,
+               reason_category, reason_explanation
         FROM resource_blackout_periods
         WHERE resource_id = %s
+          AND status = 'Active'
           AND start_datetime < %s
           AND end_datetime > %s
         LIMIT 1
@@ -60,11 +62,23 @@ def check_resource_availability(
     )
     blackout = cursor.fetchone()
     if blackout:
-        reason_text = blackout.get("reason") or "Scheduled blackout/maintenance"
+        reason_category = blackout.get("reason_category") or "Other"
+        reason_text = blackout.get("reason_explanation") or blackout.get("reason") or "Scheduled blackout"
+        overlap_start = max(start_dt, blackout["start_datetime"])
+        overlap_end = min(end_dt, blackout["end_datetime"])
+        date_time_format = "%Y-%m-%d %I:%M %p"
         return {
             "is_available": False,
             "state": "blocked",
-            "reason": f"Resource is unavailable due to blackout: {reason_text}.",
+            "reason": (
+                f"{res['resource_name']} cannot be booked for the requested period "
+                f"{start_dt.strftime(date_time_format)} to {end_dt.strftime(date_time_format)}. "
+                f"It is unavailable during the overlapping blackout period "
+                f"{overlap_start.strftime(date_time_format)} to {overlap_end.strftime(date_time_format)} "
+                f"(full blackout: {blackout['start_datetime'].strftime(date_time_format)} to "
+                f"{blackout['end_datetime'].strftime(date_time_format)}). "
+                f"Reason category: {reason_category}. Details: {reason_text}"
+            ),
             "conflicting_blackout": blackout
         }
 
@@ -204,6 +218,7 @@ def get_resource_schedule_for_day(cursor, resource_id: int, query_date: date) ->
         SELECT blackout_id, reason, start_datetime, end_datetime
         FROM resource_blackout_periods
         WHERE resource_id = %s
+          AND status = 'Active'
           AND start_datetime <= %s
           AND end_datetime >= %s
         ORDER BY start_datetime ASC

@@ -89,6 +89,14 @@ def approve_booking(
         cursor.execute("SELECT booking_resource_id, resource_id, start_time, end_time FROM booking_resources WHERE booking_id = %s", (booking_id,))
         resources = cursor.fetchall()
 
+        for resource_id in sorted({resource["resource_id"] for resource in resources}):
+            cursor.execute(
+                "SELECT resource_id FROM resources WHERE resource_id = %s FOR UPDATE",
+                (resource_id,),
+            )
+            if not cursor.fetchone():
+                raise HTTPException(status_code=404, detail=f"Resource ID {resource_id} no longer exists.")
+
         for r in resources:
             avail = check_resource_availability(
                 cursor,

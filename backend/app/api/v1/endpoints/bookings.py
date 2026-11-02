@@ -174,6 +174,7 @@ def list_bookings(
 def page_bookings(
     status_filter: Optional[str] = Query(None, alias="status"),
     booking_type: str = Query("All", pattern="^(All|Space|Equipment|Combined)$"),
+    category_id: Optional[int] = Query(None, ge=1),
     q: Optional[str] = Query(None, max_length=200),
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
@@ -203,6 +204,15 @@ def page_bookings(
     elif booking_type == "Combined":
         where.append("EXISTS (SELECT 1 FROM booking_resources br WHERE br.booking_id = b.booking_id)")
         where.append("EXISTS (SELECT 1 FROM booking_equipment_items bei WHERE bei.booking_id = b.booking_id)")
+    if category_id:
+        where.append(
+            """EXISTS (
+                SELECT 1 FROM booking_resources br
+                JOIN resources r ON r.resource_id = br.resource_id
+                WHERE br.booking_id = b.booking_id AND r.category_id = %s
+            )"""
+        )
+        params.append(category_id)
     if start_date:
         where.append("b.start_time >= %s")
         params.append(datetime.combine(start_date, time.min))
@@ -547,5 +557,18 @@ def cancel_booking(booking_id: int, req: BookingCancelRequest, current_user: Use
             notif_type="Alert",
             booking_id=booking_id
         )
+        cursor.execute("SELECT name FROM users WHERE user_id = %s", (b["user_id"],))
+        requester = cursor.fetchone()
+        requester_name = requester["name"] if requester else f"User #{b['user_id']}"
+        cursor.execute("SELECT user_id FROM users WHERE role = 'Admin' AND is_active = 1 AND user_id != %s", (current_user.user_id,))
+        for admin in cursor.fetchall():
+            create_notification(
+                cursor,
+                user_id=admin["user_id"],
+                message=f"Booking BK-{booking_id} for '{b['purpose']}' was cancelled by {current_user.name or requester_name}.",
+                notif_type="Alert",
+                booking_id=booking_id,
+                audience="Admin"
+            )
 
     return get_booking(booking_id, current_user, db)
