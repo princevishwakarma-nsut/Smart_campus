@@ -1,5 +1,5 @@
 const CONFIG = {
-  API_BASE_URL: "http://127.0.0.1:8000/api/v1",
+  API_BASE_URL: "https://smart-campus-api-1p02.onrender.com/api/v1",
   STORAGE_TOKEN_KEY: "smartCampus.token",
   STORAGE_USER_KEY: "smartCampus.user"
 };
