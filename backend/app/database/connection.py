@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 import os
 from typing import Optional
 
@@ -68,11 +68,14 @@ def get_connection_pool() -> pooling.MySQLConnectionPool:
 
 
 def get_db_connection():
-    """Retrieve a connection from the pool without silently falling back to another database."""
+    """Retrieve a connection from the pool with retry on stale connection."""
+    global _pool
     pool = get_connection_pool()
     try:
         conn = pool.get_connection()
         return conn
     except Error as exc:
-        logger.error(f"Error getting connection from pool: {exc}")
-        raise
+        logger.warning("Error getting connection from pool (%s), refreshing pool and retrying...", exc)
+        _pool = None
+        pool = get_connection_pool()
+        return pool.get_connection()
