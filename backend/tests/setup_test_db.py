@@ -127,11 +127,11 @@ def setup_isolated_test_database():
     """)
 
     # Seed Sports Facility category and resources in test DB
-    cursor.execute("SELECT category_id FROM categories WHERE category_name = 'Sports Facility'")
+    cursor.execute("SELECT category_id FROM categories WHERE category_id = 6")
     row_cat = cursor.fetchone()
     if not row_cat:
-        cursor.execute("INSERT INTO categories (category_name, description) VALUES ('Sports Facility', 'Indoor and outdoor athletic facilities.')")
-        sports_cat_id = cursor.lastrowid
+        cursor.execute("INSERT INTO categories (category_id, category_name, description) VALUES (6, 'Sports Facility', 'Indoor and outdoor athletic facilities.') ON DUPLICATE KEY UPDATE category_name='Sports Facility'")
+        sports_cat_id = 6
     else:
         sports_cat_id = row_cat[0]
 
@@ -173,7 +173,7 @@ def setup_isolated_test_database():
             ADD COLUMN end_time DATETIME NULL
         """)
 
-    cursor.execute("SHOW COLUMNS FROM equipment_items LIKE 'item_code'")
+    cursor.execute("SHOW COLUMNS FROM equipment_items LIKE 'category'")
     if not cursor.fetchone():
         cursor.execute("""
             ALTER TABLE equipment_items
@@ -269,6 +269,15 @@ def setup_isolated_test_database():
 
     # Seed mock fixtures
     p_hash = get_password_hash("Password123!")
+
+    cursor.execute("""
+        INSERT INTO system_settings (
+            setting_id, academic_year, timetable_enforcement, booking_window_days,
+            approval_mode, approval_categories, min_booking_minutes,
+            max_booking_minutes, cancellation_cutoff_hours
+        ) VALUES (1, '2026-2027', 1, 30, 'Manual', JSON_ARRAY(), 15, 480, 0)
+        ON DUPLICATE KEY UPDATE setting_id = 1
+    """)
 
     # 1. Departments
     cursor.execute("INSERT INTO departments (department_id, department_name, is_active) VALUES (1, 'Computer Science', 1), (2, 'Electronics', 1)")

@@ -455,8 +455,10 @@ async function confirmCancelBooking(bookingId) {
 
 async function openBookingHistory(bookingId) {
   try {
-    const audits = await api.get("/reports/audit", { q: `BK-${bookingId}` });
-    const b = await api.get(`/bookings/${bookingId}`);
+    const [audits, b] = await Promise.all([
+      api.get("/reports/audit", { q: `BK-${bookingId}` }),
+      api.get(`/bookings/${bookingId}`)
+    ]);
 
     let timelineHtml = "";
     if (audits.length) {

@@ -7,6 +7,7 @@ from app.database.transaction import transaction_scope
 from app.schemas.maintenance import MaintenanceCreate, MaintenanceComplete, MaintenanceResponse
 from app.services.booking_workflow import create_notification
 from app.services.audit_service import log_system_audit
+from app.services.availability import campus_datetime, campus_now_naive
 
 router = APIRouter()
 
@@ -20,7 +21,7 @@ def list_maintenance(
 ):
     query = """
         SELECT m.maintenance_id, m.resource_id, m.item_id, m.reported_by, m.assigned_to,
-               m.issue_description, m.status, m.reported_at, m.resolved_at, m.remarks,
+               m.issue_description, m.maintenance_type, m.status, m.reported_at, m.resolved_at, m.remarks,
                r.resource_name, eq.item_name, u.name as reporter_name
         FROM maintenance_records m
         LEFT JOIN resources r ON m.resource_id = r.resource_id
@@ -51,6 +52,7 @@ def list_maintenance(
             reporter_name=r["reporter_name"],
             assigned_to=r["assigned_to"],
             issue_description=r["issue_description"],
+            maintenance_type=r["maintenance_type"],
             status=r["status"],
             reported_at=r["reported_at"],
             resolved_at=r["resolved_at"],
@@ -70,53 +72,112 @@ def create_maintenance(
         raise HTTPException(status_code=400, detail="Must specify either resource_id or item_id for maintenance.")
 
     with transaction_scope() as (conn, cursor):
+        try:
+            start_value = (
+                datetime.fromisoformat(req.start_datetime.replace("Z", "+00:00"))
+                if req.start_datetime else campus_now_naive()
+            )
+            end_value = (
+                datetime.fromisoformat(req.end_datetime.replace("Z", "+00:00"))
+                if req.end_datetime else datetime(2099, 12, 31, 23, 59, 59)
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Maintenance start and end must be valid date/time values.") from exc
+        start_dt = campus_datetime(start_value)
+        end_dt = campus_datetime(end_value)
+        if end_dt <= start_dt:
+            raise HTTPException(status_code=422, detail="Maintenance end time must be after its start time.")
+
+        affected_bookings = []
+        if req.resource_id:
+            cursor.execute(
+                "SELECT resource_id, resource_name FROM resources WHERE resource_id = %s FOR UPDATE",
+                (req.resource_id,),
+            )
+            target_resource = cursor.fetchone()
+            if not target_resource:
+                raise HTTPException(status_code=404, detail="Resource not found.")
+            cursor.execute(
+                """
+                SELECT DISTINCT b.booking_id, b.user_id, u.name AS requester_name, b.purpose,
+                       b.status AS booking_status, br.start_time, br.end_time
+                FROM bookings b
+                JOIN booking_resources br ON b.booking_id = br.booking_id
+                JOIN users u ON u.user_id = b.user_id
+                WHERE br.resource_id = %s
+                  AND br.status IN ('Approved', 'Pending')
+                  AND b.status IN ('Approved', 'Pending')
+                  AND br.start_time < %s
+                  AND br.end_time > %s
+                ORDER BY br.start_time, b.booking_id
+                """,
+                (req.resource_id, end_dt, start_dt),
+            )
+            affected_bookings = cursor.fetchall()
+            if affected_bookings and not req.confirm_booking_conflicts:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "message": "Existing bookings overlap this maintenance period. Review the affected bookings before confirming.",
+                        "requires_confirmation": True,
+                        "resource_name": target_resource["resource_name"],
+                        "conflict_count": len(affected_bookings),
+                        "conflicts": [
+                            {
+                                "booking_id": row["booking_id"],
+                                "requester_name": row["requester_name"],
+                                "purpose": row["purpose"],
+                                "status": row["booking_status"],
+                                "start_time": row["start_time"].isoformat(),
+                                "end_time": row["end_time"].isoformat(),
+                            }
+                            for row in affected_bookings
+                        ],
+                    },
+                )
+
         # 1. Insert maintenance record
         cursor.execute(
             """
-            INSERT INTO maintenance_records (resource_id, item_id, reported_by, issue_description, status, remarks)
-            VALUES (%s, %s, %s, %s, 'Open', %s)
+            INSERT INTO maintenance_records
+                (resource_id, item_id, reported_by, issue_description, maintenance_type, status, remarks)
+            VALUES (%s, %s, %s, %s, %s, 'Open', %s)
             """,
-            (req.resource_id, req.item_id, current_user.user_id, req.issue_description, req.remarks)
+            (
+                req.resource_id, req.item_id, current_user.user_id, req.issue_description,
+                req.maintenance_type, req.remarks,
+            )
         )
         maint_id = cursor.lastrowid
 
         # 2. Update resource or equipment status
         if req.resource_id:
-            cursor.execute("UPDATE resources SET status = 'Maintenance' WHERE resource_id = %s", (req.resource_id,))
+            if start_dt <= campus_now_naive() < end_dt:
+                cursor.execute("UPDATE resources SET status = 'Maintenance' WHERE resource_id = %s", (req.resource_id,))
             cursor.execute("SELECT resource_name FROM resources WHERE resource_id = %s", (req.resource_id,))
             res_name = cursor.fetchone()["resource_name"]
 
             # 3. Create resource blackout period with explicit maintenance_id foreign key
-            s_dt = datetime.fromisoformat(req.start_datetime.replace("Z", "+00:00")).replace(tzinfo=None) if req.start_datetime else datetime.now()
-            e_dt = datetime.fromisoformat(req.end_datetime.replace("Z", "+00:00")).replace(tzinfo=None) if req.end_datetime else datetime(2099, 12, 31, 23, 59, 59)
-
             cursor.execute(
                 """
-                INSERT INTO resource_blackout_periods (resource_id, maintenance_id, start_datetime, end_datetime, reason, created_by)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO resource_blackout_periods
+                    (resource_id, maintenance_id, start_datetime, end_datetime, reason, reason_category,
+                     reason_explanation, created_by)
+                VALUES (%s, %s, %s, %s, %s, 'Maintenance', %s, %s)
                 """,
-                (req.resource_id, maint_id, s_dt, e_dt, f"Maintenance #{maint_id}: {req.issue_description}", current_user.user_id)
+                (
+                    req.resource_id, maint_id, start_dt, end_dt,
+                    f"{req.maintenance_type}: {req.issue_description}", req.issue_description,
+                    current_user.user_id,
+                )
             )
 
-            # 4. Identify upcoming overlapping bookings and alert affected owners
-            cursor.execute(
-                """
-                SELECT DISTINCT b.booking_id, b.user_id, b.purpose, br.start_time, br.end_time
-                FROM bookings b
-                JOIN booking_resources br ON b.booking_id = br.booking_id
-                WHERE br.resource_id = %s
-                  AND br.status IN ('Approved', 'Pending')
-                  AND br.start_time < %s
-                  AND br.end_time > %s
-                """,
-                (req.resource_id, e_dt, s_dt)
-            )
-            affected_bookings = cursor.fetchall()
+            # Confirmed conflicts remain in booking history and are not cancelled automatically.
             for ab in affected_bookings:
                 create_notification(
                     cursor,
                     user_id=ab["user_id"],
-                    message=f"Alert: Space '{res_name}' was marked under maintenance during your booking BK-{ab['booking_id']} ('{ab['purpose']}'). Please reschedule or contact administration.",
+                    message=f"Maintenance ({req.maintenance_type}) is scheduled for '{res_name}' during booking BK-{ab['booking_id']}. Contact administration to resolve this conflict; your booking was not cancelled.",
                     notif_type="Alert",
                     booking_id=ab["booking_id"]
                 )
@@ -157,7 +218,7 @@ def create_maintenance(
     db.execute(
         """
         SELECT m.maintenance_id, m.resource_id, m.item_id, m.reported_by, m.assigned_to,
-               m.issue_description, m.status, m.reported_at, m.resolved_at, m.remarks,
+               m.issue_description, m.maintenance_type, m.status, m.reported_at, m.resolved_at, m.remarks,
                r.resource_name, eq.item_name, u.name as reporter_name
         FROM maintenance_records m
         LEFT JOIN resources r ON m.resource_id = r.resource_id
@@ -179,6 +240,7 @@ def create_maintenance(
         reporter_name=row["reporter_name"],
         assigned_to=row["assigned_to"],
         issue_description=row["issue_description"],
+        maintenance_type=row["maintenance_type"],
         status=row["status"],
         reported_at=row["reported_at"],
         resolved_at=row["resolved_at"],
@@ -251,7 +313,7 @@ def complete_maintenance(
     db.execute(
         """
         SELECT m.maintenance_id, m.resource_id, m.item_id, m.reported_by, m.assigned_to,
-               m.issue_description, m.status, m.reported_at, m.resolved_at, m.remarks,
+               m.issue_description, m.maintenance_type, m.status, m.reported_at, m.resolved_at, m.remarks,
                r.resource_name, eq.item_name, u.name as reporter_name
         FROM maintenance_records m
         LEFT JOIN resources r ON m.resource_id = r.resource_id
@@ -273,6 +335,7 @@ def complete_maintenance(
         reporter_name=row["reporter_name"],
         assigned_to=row["assigned_to"],
         issue_description=row["issue_description"],
+        maintenance_type=row["maintenance_type"],
         status=row["status"],
         reported_at=row["reported_at"],
         resolved_at=row["resolved_at"],

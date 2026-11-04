@@ -22,27 +22,26 @@ def get_dashboard_stats(
 ):
     if start_date and end_date and start_date > end_date:
         raise HTTPException(status_code=422, detail="Dashboard start date must be on or before its end date.")
-    # Resource metrics
-    db.execute("SELECT COUNT(*) as total FROM resources")
-    total_resources = db.fetchone()["total"]
-
-    # Calculate dynamically true available spaces right now (not under maintenance, blackout, or occupied by active booking)
+    # Resource metrics (consolidated single query)
     db.execute(
         """
-        SELECT COUNT(*) as avail FROM resources r
-        WHERE r.status = 'Available'
-          AND r.resource_id NOT IN (
-            SELECT resource_id FROM resource_blackout_periods WHERE start_datetime <= NOW() AND end_datetime >= NOW()
-          )
-          AND r.resource_id NOT IN (
-            SELECT resource_id FROM booking_resources WHERE status IN ('Approved', 'Pending') AND start_time <= NOW() AND end_time >= NOW()
-          )
+        SELECT 
+            COUNT(*) as total,
+            COALESCE(SUM(CASE WHEN status = 'Maintenance' THEN 1 ELSE 0 END), 0) as maint,
+            COALESCE(SUM(CASE WHEN status = 'Available'
+                AND resource_id NOT IN (
+                    SELECT resource_id FROM resource_blackout_periods WHERE start_datetime <= NOW() AND end_datetime >= NOW()
+                )
+                AND resource_id NOT IN (
+                    SELECT resource_id FROM booking_resources WHERE status IN ('Approved', 'Pending') AND start_time <= NOW() AND end_time >= NOW()
+                ) THEN 1 ELSE 0 END), 0) as avail
+        FROM resources
         """
     )
-    available_resources = db.fetchone()["avail"]
-
-    db.execute("SELECT COUNT(*) as maint FROM resources WHERE status = 'Maintenance'")
-    maintenance_resources = db.fetchone()["maint"]
+    r_counts = db.fetchone()
+    total_resources = r_counts["total"]
+    available_resources = r_counts["avail"]
+    maintenance_resources = r_counts["maint"]
 
     date_filter = ""
     date_params = []
@@ -53,31 +52,45 @@ def get_dashboard_stats(
         date_filter += " AND DATE(start_time) <= %s"
         date_params.append(end_date)
 
-    def count_bookings(where_clause="1=1", params=()):
-        db.execute(
-            f"SELECT COUNT(*) AS count FROM bookings WHERE {where_clause}{date_filter}",
-            tuple(params) + tuple(date_params)
-        )
-        return db.fetchone()["count"]
+    # Booking metrics (consolidated single query instead of 6 sequential queries)
+    db.execute(
+        f"""
+        SELECT 
+            COUNT(*) AS total_bookings,
+            COALESCE(SUM(CASE WHEN status = 'Pending' THEN 1 ELSE 0 END), 0) AS pending_approvals,
+            COALESCE(SUM(CASE WHEN status = 'Approved' THEN 1 ELSE 0 END), 0) AS approved_bookings,
+            COALESCE(SUM(CASE WHEN status = 'Rejected' THEN 1 ELSE 0 END), 0) AS rejected_bookings,
+            COALESCE(SUM(CASE WHEN status = 'Cancelled' THEN 1 ELSE 0 END), 0) AS cancelled_bookings,
+            COALESCE(SUM(CASE WHEN DATE(start_time) = CURDATE() THEN 1 ELSE 0 END), 0) AS bookings_today
+        FROM bookings
+        WHERE 1=1 {date_filter}
+        """,
+        tuple(date_params)
+    )
+    b_counts = db.fetchone()
+    total_bookings = b_counts["total_bookings"]
+    pending_approvals = b_counts["pending_approvals"]
+    approved_bookings = b_counts["approved_bookings"]
+    rejected_bookings = b_counts["rejected_bookings"]
+    cancelled_bookings = b_counts["cancelled_bookings"]
+    bookings_today = b_counts["bookings_today"]
 
-    total_bookings = count_bookings()
-    pending_approvals = count_bookings("status = %s", ("Pending",))
-    approved_bookings = count_bookings("status = %s", ("Approved",))
-    rejected_bookings = count_bookings("status = %s", ("Rejected",))
-    cancelled_bookings = count_bookings("status = %s", ("Cancelled",))
-    bookings_today = count_bookings("DATE(start_time) = CURDATE()")
-
-    db.execute("SELECT COUNT(*) AS total_types, COALESCE(SUM(total_quantity), 0) AS total_units FROM equipment_items WHERE is_active = 1")
-    equipment_inventory = db.fetchone()
-    db.execute("SELECT COUNT(*) AS count FROM maintenance_records WHERE status NOT IN ('Resolved', 'Completed', 'Cancelled')")
-    maintenance_tickets = db.fetchone()["count"]
-
-    # User & Society metrics
-    db.execute("SELECT COUNT(*) as active FROM users WHERE is_active = 1")
-    active_users = db.fetchone()["active"]
-
-    db.execute("SELECT COUNT(*) as total FROM societies WHERE is_active = 1")
-    total_societies = db.fetchone()["total"]
+    # System metrics: equipment, maintenance, users, societies (consolidated single query)
+    db.execute(
+        """
+        SELECT
+            (SELECT COUNT(*) FROM equipment_items WHERE is_active = 1) AS total_types,
+            (SELECT COALESCE(SUM(total_quantity), 0) FROM equipment_items WHERE is_active = 1) AS total_units,
+            (SELECT COUNT(*) FROM maintenance_records WHERE status NOT IN ('Resolved', 'Completed', 'Cancelled')) AS maintenance_tickets,
+            (SELECT COUNT(*) FROM users WHERE is_active = 1) AS active_users,
+            (SELECT COUNT(*) FROM societies WHERE is_active = 1) AS total_societies
+        """
+    )
+    sys_metrics = db.fetchone()
+    equipment_inventory = {"total_types": sys_metrics["total_types"], "total_units": sys_metrics["total_units"]}
+    maintenance_tickets = sys_metrics["maintenance_tickets"]
+    active_users = sys_metrics["active_users"]
+    total_societies = sys_metrics["total_societies"]
 
     # Category distribution
     db.execute(
@@ -229,113 +242,123 @@ def get_audit_trail(
     q: Optional[str] = Query(None),
     action: Optional[str] = Query(None),
     entity_type: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=300),
+    offset: int = Query(0, ge=0),
     current_user: UserContext = Depends(require_roles(Role.ADMIN)),
     db=Depends(get_db)
 ):
     """
-    Unified append-only audit trail combining:
-    1. booking_audit (Booking lifecycle events)
-    2. system_audit (Resource, Equipment, Society, User, Maintenance, Blackout events)
+    Unified append-only audit trail combining booking and system audit records.
+    Uses a single UNION ALL query with server-side pagination to avoid loading
+    large batches and to keep the audit log responsive.
     """
-    results = []
+    booking_filters = []
+    booking_params = []
+    if action and action != "All":
+        booking_filters.append("a.action = %s")
+        booking_params.append(action)
+    if q:
+        booking_filters.append("(a.remarks LIKE %s OR u.name LIKE %s OR b.purpose LIKE %s)")
+        like_q = f"%{q}%"
+        booking_params.extend([like_q, like_q, like_q])
 
-    # 1. Booking Audit Query
-    b_query = """
-        SELECT a.audit_id, a.booking_id, a.changed_by, a.action,
-               a.old_values, a.new_values, a.remarks, a.changed_at,
-               u.name as changed_by_name, u.role as changed_by_role,
-               b.purpose as booking_purpose, 'Booking' as entity_type, a.booking_id as entity_id
+    system_filters = []
+    system_params = []
+    if action and action != "All":
+        system_filters.append("sa.action = %s")
+        system_params.append(action)
+    if entity_type and entity_type != "All":
+        system_filters.append("sa.entity_type = %s")
+        system_params.append(entity_type)
+    if q:
+        system_filters.append("(sa.remarks LIKE %s OR u.name LIKE %s OR sa.entity_type LIKE %s)")
+        like_q = f"%{q}%"
+        system_params.extend([like_q, like_q, like_q])
+
+    union_query = """
+        SELECT
+            a.audit_id AS audit_id,
+            a.booking_id AS entity_id,
+            'Booking' AS entity_type,
+            a.booking_id AS raw_booking_id,
+            a.action AS action,
+            a.remarks AS remarks,
+            a.old_values AS old_values,
+            a.new_values AS new_values,
+            a.changed_at AS changed_at,
+            u.name AS changed_by_name,
+            u.role AS changed_by_role,
+            b.purpose AS booking_purpose,
+            a.booking_id AS booking_id
         FROM booking_audit a
         LEFT JOIN users u ON a.changed_by = u.user_id
         LEFT JOIN bookings b ON a.booking_id = b.booking_id
         WHERE 1=1
     """
-    b_params = []
-    if action and action != "All":
-        b_query += " AND a.action = %s"
-        b_params.append(action)
-    if q:
-        b_query += " AND (a.remarks LIKE %s OR u.name LIKE %s OR b.purpose LIKE %s)"
-        b_params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
+    if booking_filters:
+        union_query += " AND " + " AND ".join(booking_filters)
 
-    b_query += " ORDER BY a.changed_at DESC LIMIT 100"
-    db.execute(b_query, tuple(b_params))
-    for r in db.fetchall():
-        results.append({
-            "id": f"BA-{r['audit_id']}",
-            "audit_id": r["audit_id"],
-            "entity_type": "Booking",
-            "entity_id": r["entity_id"],
-            "booking_id": f"BK-{r['booking_id']}",
-            "raw_booking_id": r["booking_id"],
-            "booking_purpose": r.get("booking_purpose"),
-            "action": r["action"],
-            "old_values": r["old_values"],
-            "new_values": r["new_values"],
-            "changed_by": r.get("changed_by_name") or "System",
-            "changed_by_role": r.get("changed_by_role") or "System",
-            "changed_at": r["changed_at"].isoformat() if hasattr(r["changed_at"], "isoformat") else str(r["changed_at"]),
-            "remarks": r["remarks"]
-        })
-
-    # 2. System Audit Query (Only if not filtering specifically for booking only)
     if not entity_type or entity_type != "Booking":
-        s_query = """
-            SELECT sa.audit_id, sa.entity_type, sa.entity_id, sa.action, sa.changed_by,
-                   sa.old_values, sa.new_values, sa.remarks, sa.created_at,
-                   u.name as changed_by_name, u.role as changed_by_role
+        union_query += """
+            UNION ALL
+            SELECT
+                sa.audit_id AS audit_id,
+                sa.entity_id AS entity_id,
+                sa.entity_type AS entity_type,
+                NULL AS raw_booking_id,
+                sa.action AS action,
+                sa.remarks AS remarks,
+                sa.old_values AS old_values,
+                sa.new_values AS new_values,
+                sa.created_at AS changed_at,
+                u.name AS changed_by_name,
+                u.role AS changed_by_role,
+                NULL AS booking_purpose,
+                NULL AS booking_id
             FROM system_audit sa
             LEFT JOIN users u ON sa.changed_by = u.user_id
             WHERE 1=1
         """
-        s_params = []
-        if action and action != "All":
-            s_query += " AND sa.action = %s"
-            s_params.append(action)
-        if entity_type and entity_type != "All":
-            s_query += " AND sa.entity_type = %s"
-            s_params.append(entity_type)
-        if q:
-            s_query += " AND (sa.remarks LIKE %s OR u.name LIKE %s OR sa.entity_type LIKE %s)"
-            s_params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
+        if system_filters:
+            union_query += " AND " + " AND ".join(system_filters)
 
-        s_query += " ORDER BY sa.created_at DESC LIMIT 100"
-        db.execute(s_query, tuple(s_params))
-        for r in db.fetchall():
-            results.append({
-                "id": f"SA-{r['audit_id']}",
-                "audit_id": r["audit_id"],
-                "entity_type": r["entity_type"],
-                "entity_id": r["entity_id"],
-                "booking_id": None,
-                "raw_booking_id": None,
-                "booking_purpose": None,
-                "action": r["action"],
-                "old_values": r["old_values"],
-                "new_values": r["new_values"],
-                "changed_by": r.get("changed_by_name") or "System",
-                "changed_by_role": r.get("changed_by_role") or "System",
-                "changed_at": r["created_at"].isoformat() if hasattr(r["created_at"], "isoformat") else str(r["created_at"]),
-                "remarks": r["remarks"]
-            })
+    union_query += " ORDER BY changed_at DESC, audit_id DESC LIMIT %s OFFSET %s"
+    db.execute(union_query, tuple(booking_params + system_params + [limit, offset]))
 
-    # Sort combined results chronologically descending
-    results.sort(key=lambda x: x["changed_at"], reverse=True)
-    return results[:150]
+    results = []
+    for row in db.fetchall():
+        prefix = "BA" if row["entity_type"] == "Booking" else "SA"
+        results.append({
+            "id": f"{prefix}-{row['audit_id']}",
+            "audit_id": row["audit_id"],
+            "entity_type": row["entity_type"],
+            "entity_id": row["entity_id"],
+            "booking_id": f"BK-{row['raw_booking_id']}" if row.get("raw_booking_id") is not None else None,
+            "raw_booking_id": row.get("raw_booking_id"),
+            "booking_purpose": row.get("booking_purpose"),
+            "action": row["action"],
+            "old_values": row["old_values"],
+            "new_values": row["new_values"],
+            "changed_by": row.get("changed_by_name") or "System",
+            "changed_by_role": row.get("changed_by_role") or "System",
+            "changed_at": row["changed_at"].isoformat() if hasattr(row["changed_at"], "isoformat") else str(row["changed_at"]),
+            "remarks": row["remarks"],
+        })
+
+    return results
 
 
 @router.get("/settings", summary="Get live backend system configuration (Admin)")
 @router.get("/settings/", include_in_schema=False)
 def get_live_settings(current_user: UserContext = Depends(require_roles(Role.ADMIN)), db=Depends(get_db)):
     configured = get_booking_settings(db)
-    db.execute("SELECT DATABASE()")
-    current_db = db.fetchone()["DATABASE()"]
-
     db.execute(
-        "SELECT COUNT(*) as count FROM resource_timetable WHERE academic_year = %s OR academic_year IS NULL",
+        "SELECT DATABASE() AS current_db, (SELECT COUNT(*) FROM resource_timetable WHERE academic_year = %s OR academic_year IS NULL) AS tt_count",
         (configured["academic_year"],)
     )
-    tt_count = db.fetchone()["count"]
+    meta_row = db.fetchone()
+    current_db = meta_row["current_db"]
+    tt_count = meta_row["tt_count"]
 
     db.execute(
         """

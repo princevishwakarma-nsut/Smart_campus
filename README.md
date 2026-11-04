@@ -68,7 +68,7 @@ Smart-Campus/
 │   └── .env.example              # Template environment file
 │
 ├── database/
-│   ├── schema.sql                # Complete 19-table MySQL schema dump
+│   ├── schema.sql                # Complete MySQL schema dump
 │   ├── seeds/                    # Seed configurations
 │   └── migrations/               # Database migrations
 │
@@ -119,8 +119,11 @@ python database/migrations/apply_008_settings.py
 python database/migrations/apply_009_resource_hours.py
 python database/migrations/apply_010_blackout_management.py
 python database/migrations/apply_011_blackout_exclusions.py
+python database/migrations/apply_012_operating_hours_and_maintenance.py
+python database/migrations/apply_013_operating_hours_activation.py
+python database/migrations/apply_014_equipment_blackouts.py
 ```
-Migration 008 adds persisted Admin-managed booking rules (academic year and timetable enforcement, advance window, duration limits, approval workflow, and cancellation cutoff). Migration 009 adds the optional resource operating-hours field. Migration 010 adds linked bulk blackout metadata, reason categories and explanations, and historical cancellation state. Migration 011 stores category-selection exclusions so bulk blackout edits preserve individually removed resources. These migrations are additive and preserve existing booking and inventory data. After applying migration 008, configure booking rules from **Admin → Settings**. Authentication tokens and cached users are stored per browser tab, so separate tabs can use separate accounts.
+Migration 008 adds persisted Admin-managed booking rules (academic year and timetable enforcement, advance window, duration limits, approval workflow, and cancellation cutoff). Migration 009 adds the optional legacy resource operating-hours field. Migration 010 adds linked bulk blackout metadata, reason categories and explanations, and historical cancellation state. Migration 011 stores category-selection exclusions so bulk blackout edits preserve individually removed resources. Migration 012 adds audited recurring weekly resource schedules, date-specific operating-hours exceptions, and a maintenance type field. Migration 013 adds an active switch for recurring schedules while preserving existing schedule rows. Migration 014 adds additive, audited equipment blackout periods. Configure bulk resource hours and exceptions from **Admin → Resource Inventory → Operating Hours**; the schedule form defaults to 08:00–18:00 every day, with the remaining hours unavailable after the schedule is applied. Booking validation enforces active configured hours, exceptions, blackouts, and pending or approved reservations. Blackout windows can target spaces or equipment, and selected weekdays (such as Monday–Friday) create separate dated occurrences through the selected end date. Blackout creation with overlapping bookings requires explicit Admin confirmation; it preserves existing bookings and notifies affected users. Maintenance overlapping existing bookings also requires explicit conflict review and confirmation. These migrations are additive and preserve existing booking and inventory data. After applying migration 008, configure booking rules from **Admin → Settings**. Authentication tokens and cached users are stored per browser tab, so separate tabs can use separate accounts.
 `CAMPUS_TIMEZONE` sets the IANA timezone used by the backend to classify today's and upcoming schedule bookings; it defaults to `Asia/Kolkata`.
 
 ### D. Seed the Initial Admin Account (if not already seeded)

@@ -7,7 +7,8 @@ def calculate_equipment_availability(
     item_id: int,
     start_dt: datetime,
     end_dt: datetime,
-    exclude_booking_id: Optional[int] = None
+    exclude_booking_id: Optional[int] = None,
+    locking_read: bool = False
 ) -> Optional[Dict[str, Any]]:
     """
     Centrally calculates dynamic equipment stock availability for a given time window.
@@ -57,7 +58,7 @@ def calculate_equipment_availability(
 
     # Query active/pending bookings involving this equipment item
     cursor.execute(
-        """
+        f"""
         SELECT bei.booking_id, b.status,
                COALESCE(MIN(br.start_time), b.start_time) AS slot_start,
                COALESCE(MAX(br.end_time), b.end_time) AS slot_end,
@@ -72,6 +73,7 @@ def calculate_equipment_availability(
         GROUP BY bei.booking_equipment_id, bei.booking_id, b.status, b.start_time, b.end_time,
                  bei.requested_quantity, bei.approved_quantity, bei.issued_quantity,
                  bei.returned_good_quantity, bei.returned_damaged_quantity, bei.lost_quantity
+        {"LOCK IN SHARE MODE" if locking_read else ""}
         """,
         (item_id, exclude_booking_id, exclude_booking_id)
     )
@@ -79,6 +81,19 @@ def calculate_equipment_availability(
 
     reserved_in_window = 0
     overdue_issued = 0
+    cursor.execute(
+        """
+        SELECT equipment_blackout_id, start_datetime, end_datetime,
+               reason_category, reason_explanation
+        FROM equipment_blackout_periods
+        WHERE item_id = %s AND status = 'Active'
+          AND start_datetime < %s AND end_datetime > %s
+        ORDER BY start_datetime
+        LIMIT 1
+        """,
+        (item_id, end_dt, start_dt),
+    )
+    blackout = cursor.fetchone()
 
     now = datetime.now()
 
@@ -105,7 +120,7 @@ def calculate_equipment_availability(
             if outstanding > 0 and b_end and b_end <= now:
                 overdue_issued += outstanding
 
-    available_quantity = max(0, usable_quantity - reserved_in_window - overdue_issued)
+    available_quantity = 0 if blackout else max(0, usable_quantity - reserved_in_window - overdue_issued)
     explicit_status = (eq.get("availability_status") or "Available").strip()
     if explicit_status == "Issued":
         availability_status = "Issued"
@@ -129,6 +144,7 @@ def calculate_equipment_availability(
         "reserved_quantity": reserved_in_window,
         "overdue_issued_quantity": overdue_issued,
         "available_quantity": available_quantity,
+        "blackout": blackout,
         "availability_status": availability_status,
         "condition_status": eq.get("condition_status") or ("Damaged" if eq["damaged_quantity"] > 0 else "Good"),
         "is_active": bool(eq["is_active"]),
@@ -150,6 +166,7 @@ def get_all_equipment_with_availability(
     Lists equipment items with real-time calculated availability.
     If start_dt and end_dt are provided, calculates availability for that specific window.
     Otherwise defaults to current time window (now to now + 2 hours).
+    Uses high-performance batch queries (3 roundtrips) instead of N+1 roundtrips.
     """
     query = """
         SELECT item_id, item_code, item_name, serial_no, category, description, unit,
@@ -177,33 +194,108 @@ def get_all_equipment_with_availability(
     cursor.execute(query, tuple(params))
     items = cursor.fetchall()
 
+    if not items:
+        return []
+
     eval_start = start_dt or datetime.now()
     eval_end = end_dt or (eval_start.replace(hour=(eval_start.hour + 2) % 24) if eval_start.hour < 22 else eval_start)
 
+    item_ids = [it["item_id"] for it in items]
+    placeholders = ",".join(["%s"] * len(item_ids))
+
+    # 1. Single batch query for active/pending bookings across all items
+    booking_sql = f"""
+        SELECT bei.item_id, bei.booking_id, b.status,
+               COALESCE(MIN(br.start_time), b.start_time) AS slot_start,
+               COALESCE(MAX(br.end_time), b.end_time) AS slot_end,
+               bei.requested_quantity, bei.approved_quantity, bei.issued_quantity,
+               bei.returned_good_quantity, bei.returned_damaged_quantity, bei.lost_quantity
+        FROM booking_equipment_items bei
+        JOIN bookings b ON bei.booking_id = b.booking_id
+        LEFT JOIN booking_resources br ON b.booking_id = br.booking_id
+        WHERE bei.item_id IN ({placeholders})
+          AND b.status IN ('Pending', 'Approved')
+          AND (%s IS NULL OR b.booking_id != %s)
+        GROUP BY bei.item_id, bei.booking_equipment_id, bei.booking_id, b.status, b.start_time, b.end_time,
+                 bei.requested_quantity, bei.approved_quantity, bei.issued_quantity,
+                 bei.returned_good_quantity, bei.returned_damaged_quantity, bei.lost_quantity
+    """
+    cursor.execute(booking_sql, tuple(item_ids + [exclude_booking_id, exclude_booking_id]))
+    booking_rows = cursor.fetchall()
+    from collections import defaultdict
+    bookings_by_item = defaultdict(list)
+    for r in booking_rows:
+        bookings_by_item[r["item_id"]].append(r)
+
+    # 2. Single batch query for active equipment blackouts across all items
+    blackout_sql = f"""
+        SELECT equipment_blackout_id, item_id, start_datetime, end_datetime,
+               reason_category, reason_explanation
+        FROM equipment_blackout_periods
+        WHERE item_id IN ({placeholders}) AND status = 'Active'
+          AND start_datetime < %s AND end_datetime > %s
+        ORDER BY start_datetime
+    """
+    cursor.execute(blackout_sql, tuple(item_ids + [eval_end, eval_start]))
+    blackout_rows = cursor.fetchall()
+    blackouts_by_item = {}
+    for bo in blackout_rows:
+        if bo["item_id"] not in blackouts_by_item:
+            blackouts_by_item[bo["item_id"]] = bo
+
+    now = datetime.now()
     results = []
     for it in items:
-        avail_info = calculate_equipment_availability(
-            cursor,
-            item_id=it["item_id"],
-            start_dt=eval_start,
-            end_dt=eval_end,
-            exclude_booking_id=exclude_booking_id
-        )
-        if avail_info:
-            it["available_quantity"] = avail_info["available_quantity"]
-            it["reserved_quantity"] = avail_info["reserved_quantity"]
-            it["usable_quantity"] = avail_info["usable_quantity"]
-            it["overdue_issued_quantity"] = avail_info["overdue_issued_quantity"]
-            it["availability_status"] = avail_info["availability_status"]
-            it["condition_status"] = avail_info["condition_status"]
-        else:
-            it["available_quantity"] = 0
-            it["reserved_quantity"] = 0
+        if not it["is_active"]:
             it["usable_quantity"] = 0
+            it["reserved_quantity"] = 0
             it["overdue_issued_quantity"] = 0
+            it["available_quantity"] = 0
             it["availability_status"] = it.get("availability_status") or "Available"
             it["condition_status"] = it.get("condition_status") or ("Damaged" if it.get("damaged_quantity", 0) > 0 else "Good")
-        it["is_active"] = bool(it["is_active"])
+            it["blackout"] = None
+            it["is_active"] = False
+            results.append(it)
+            continue
+
+        usable_quantity = max(
+            0,
+            it["total_quantity"] - it["damaged_quantity"] - it["maintenance_quantity"] - it["lost_quantity"]
+        )
+        reserved_in_window = 0
+        overdue_issued = 0
+        for r in bookings_by_item.get(it["item_id"], []):
+            b_start = r["slot_start"]
+            b_end = r["slot_end"]
+            is_overlapping = bool(b_start and b_end and b_start < eval_end and b_end > eval_start)
+            if is_overlapping:
+                qty = r["approved_quantity"] if (r["status"] == "Approved" and r["approved_quantity"] > 0) else r["requested_quantity"]
+                reserved_in_window += qty
+            else:
+                returned_total = (r["returned_good_quantity"] or 0) + (r["returned_damaged_quantity"] or 0) + (r["lost_quantity"] or 0)
+                issued_qty = r["issued_quantity"] or 0
+                outstanding = max(0, issued_qty - returned_total)
+                if outstanding > 0 and b_end and b_end <= now:
+                    overdue_issued += outstanding
+
+        blackout = blackouts_by_item.get(it["item_id"])
+        available_quantity = 0 if blackout else max(0, usable_quantity - reserved_in_window - overdue_issued)
+        explicit_status = (it.get("availability_status") or "Available").strip()
+        if explicit_status == "Issued":
+            availability_status = "Issued"
+        elif explicit_status == "Maintenance" or it["damaged_quantity"] > 0 or it["maintenance_quantity"] > 0:
+            availability_status = "Maintenance"
+        else:
+            availability_status = "Available"
+
+        it["usable_quantity"] = usable_quantity
+        it["reserved_quantity"] = reserved_in_window
+        it["overdue_issued_quantity"] = overdue_issued
+        it["available_quantity"] = available_quantity
+        it["blackout"] = blackout
+        it["availability_status"] = availability_status
+        it["condition_status"] = it.get("condition_status") or ("Damaged" if it.get("damaged_quantity", 0) > 0 else "Good")
+        it["is_active"] = True
         results.append(it)
 
     return results

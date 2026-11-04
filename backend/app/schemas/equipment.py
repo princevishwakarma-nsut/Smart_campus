@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import date, datetime
 from pydantic import BaseModel, Field
 
@@ -96,6 +96,7 @@ class EquipmentResponse(BaseModel):
     reserved_quantity: Optional[int] = 0
     available_quantity: Optional[int] = 0
     overdue_issued_quantity: Optional[int] = 0
+    blackout: Optional[Dict[str, Any]] = None
     location: str = "Gym"
     purchase_date: Optional[date] = None
     condition_status: Optional[str] = "Good"

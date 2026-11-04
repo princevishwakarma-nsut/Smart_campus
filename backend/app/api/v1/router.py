@@ -12,6 +12,7 @@ from app.api.v1.endpoints import (
     societies,
     maintenance,
     blackouts,
+    equipment_blackouts,
     checkins,
     notifications,
     reports
@@ -30,6 +31,7 @@ api_router.include_router(approvals.router, prefix="/approvals", tags=["Approval
 api_router.include_router(equipment.router, prefix="/equipment", tags=["Equipment"])
 api_router.include_router(societies.router, prefix="/societies", tags=["Societies"])
 api_router.include_router(maintenance.router, prefix="/maintenance", tags=["Maintenance"])
+api_router.include_router(equipment_blackouts.router, prefix="/blackouts/equipment", tags=["Equipment Blackouts"])
 api_router.include_router(blackouts.router, prefix="/blackouts", tags=["Blackout Management"])
 api_router.include_router(checkins.router, prefix="/checkins", tags=["Check-in & Attendance"])
 api_router.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])

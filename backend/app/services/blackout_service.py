@@ -1,12 +1,17 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
 
 from app.core.config import settings
-from app.schemas.blackout import BlackoutConflictPreview, BlackoutSelection
+from app.schemas.blackout import (
+    BlackoutConflictPreview,
+    BlackoutSelection,
+    EquipmentBlackoutConflictPreview,
+    EquipmentBlackoutCreate,
+)
 
 
 def campus_datetime(value: datetime) -> datetime:
@@ -49,7 +54,7 @@ def resolve_resources(
         params.extend(resource_ids)
     if category_ids:
         conditions.append(
-            f"(r.category_id IN ({','.join(['%s'] * len(category_ids))}) AND r.status = 'Available')"
+            f"(r.category_id IN ({','.join(['%s'] * len(category_ids))}) AND UPPER(TRIM(r.status)) = 'AVAILABLE')"
         )
         params.extend(category_ids)
     if excluded_resource_ids:
@@ -74,7 +79,8 @@ def resolve_resources(
         raise HTTPException(status_code=404, detail=f"Resources not found: {missing_ids}.")
     unavailable = [
         f"{row['resource_name']} ({row['status']})"
-        for row in resources if row["resource_id"] in resource_ids and row["status"] != "Available"
+        for row in resources
+        if row["resource_id"] in resource_ids and str(row["status"]).strip().casefold() != "available"
     ]
     if unavailable:
         raise HTTPException(
@@ -90,7 +96,8 @@ def find_booking_conflicts(
     cursor,
     resource_ids: Sequence[int],
     start_datetime: datetime,
-    end_datetime: datetime
+    end_datetime: datetime,
+    locking_read: bool = False,
 ) -> List[Dict]:
     resource_ids = sorted(set(resource_ids))
     if not resource_ids:
@@ -111,13 +118,16 @@ def find_booking_conflicts(
           AND br.end_time > %s
     """
     query += " ORDER BY r.resource_name, br.start_time, br.booking_id"
+    if locking_read:
+        query += " FOR UPDATE"
     cursor.execute(query, tuple(params))
     return cursor.fetchall()
 
 
 def conflict_payload(conflicts: List[Dict]) -> List[Dict]:
-    return [
-        {
+    payload = []
+    for row in conflicts:
+        item = {
             "booking_id": row["booking_id"],
             "resource_id": row["resource_id"],
             "resource_name": row["resource_name"],
@@ -127,8 +137,11 @@ def conflict_payload(conflicts: List[Dict]) -> List[Dict]:
             "status": row["booking_status"],
             "purpose": row["purpose"],
         }
-        for row in conflicts
-    ]
+        if row.get("blackout_start_datetime"):
+            item["blackout_start_datetime"] = row["blackout_start_datetime"].isoformat()
+            item["blackout_end_datetime"] = row["blackout_end_datetime"].isoformat()
+        payload.append(item)
+    return payload
 
 
 def notify_other_admins_of_conflicts(cursor, actor_id: int, conflicts: List[Dict], start: datetime, end: datetime):
@@ -164,10 +177,88 @@ def notify_other_admins_of_conflicts(cursor, actor_id: int, conflicts: List[Dict
                 )
 
 
+def notify_users_of_confirmed_blackout_conflicts(
+    cursor,
+    conflicts: List[Dict],
+    start: datetime,
+    end: datetime,
+    reason: str,
+) -> None:
+    notified_bookings = set()
+    for conflict in conflicts:
+        booking_id = conflict["booking_id"]
+        user_id = conflict["user_id"]
+        if (user_id, booking_id) in notified_bookings:
+            continue
+        notified_bookings.add((user_id, booking_id))
+        message = (
+            f"Your existing booking BK-{booking_id} for {conflict['resource_name']} "
+            f"overlaps a confirmed blackout from {start:%Y-%m-%d %H:%M} to {end:%Y-%m-%d %H:%M}. "
+            f"Reason: {reason}. Your booking was not cancelled; contact an administrator for assistance."
+        )
+        cursor.execute(
+            """
+            SELECT notification_id FROM notifications
+            WHERE user_id = %s AND audience = 'User' AND booking_id = %s AND message = %s
+              AND created_at >= DATE_SUB(NOW(), INTERVAL 10 MINUTE)
+            LIMIT 1
+            """,
+            (user_id, booking_id, message),
+        )
+        if not cursor.fetchone():
+            cursor.execute(
+                """
+                INSERT INTO notifications (user_id, booking_id, message, type, audience, is_read)
+                VALUES (%s, %s, %s, 'Alert', 'User', 0)
+                """,
+                (user_id, booking_id, message),
+            )
+
+
 def normalize_selection_times(
-    selection: Union[BlackoutSelection, BlackoutConflictPreview]
+    selection: Union[
+        BlackoutSelection,
+        BlackoutConflictPreview,
+        EquipmentBlackoutCreate,
+        EquipmentBlackoutConflictPreview,
+    ]
 ) -> Tuple[datetime, datetime]:
     return campus_datetime(selection.start_datetime), campus_datetime(selection.end_datetime)
+
+
+def expand_weekday_occurrences(
+    start_datetime: datetime,
+    end_datetime: datetime,
+    repeat_weekdays: Sequence[int],
+) -> List[Tuple[datetime, datetime]]:
+    if not repeat_weekdays:
+        return [(start_datetime, end_datetime)]
+    if start_datetime.date() > end_datetime.date():
+        raise HTTPException(status_code=422, detail="Repeat end date must be on or after the start date.")
+    if (end_datetime.date() - start_datetime.date()).days > 365:
+        raise HTTPException(status_code=422, detail="Weekly blackouts can be scheduled for up to one year at a time.")
+    if end_datetime.time() <= start_datetime.time():
+        raise HTTPException(
+            status_code=422,
+            detail="For weekday repeats, the end time must be later than the start time on each selected day.",
+        )
+
+    weekdays = set(repeat_weekdays)
+    occurrences = []
+    current_date = start_datetime.date()
+    while current_date <= end_datetime.date():
+        if current_date.weekday() in weekdays:
+            occurrences.append((
+                datetime.combine(current_date, start_datetime.time()),
+                datetime.combine(current_date, end_datetime.time()),
+            ))
+        current_date += timedelta(days=1)
+    if not occurrences:
+        raise HTTPException(
+            status_code=422,
+            detail="The selected weekdays do not occur within the blackout date range.",
+        )
+    return occurrences
 
 
 def store_category_ids(category_ids: Sequence[int]) -> Optional[str]:

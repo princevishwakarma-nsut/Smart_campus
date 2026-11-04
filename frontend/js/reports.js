@@ -221,19 +221,32 @@ async function renderReports() {
   }
 }
 
-async function renderAudit() {
+let auditCurrentPage = 1;
+const AUDIT_PAGE_LIMIT = 25;
+let auditSearchQuery = "";
+
+async function renderAudit(page = 1) {
+  auditCurrentPage = Math.max(1, page);
   const host = $("view");
   host.innerHTML = `<div class="empty">Loading system audit trail...</div>`;
 
   try {
-    const list = await api.get("/reports/audit");
+    const params = {
+      limit: AUDIT_PAGE_LIMIT + 1,
+      offset: (auditCurrentPage - 1) * AUDIT_PAGE_LIMIT
+    };
+    if (auditSearchQuery) params.q = auditSearchQuery;
+
+    const list = await api.get("/reports/audit", params);
+    const hasMore = Array.isArray(list) && list.length > AUDIT_PAGE_LIMIT;
+    const pageItems = hasMore ? list.slice(0, AUDIT_PAGE_LIMIT) : (Array.isArray(list) ? list : []);
 
     let html = `
       <div class="panel">
         <div class="panel-head">
-          <h3>Audit Log Trail (${list.length})</h3>
+          <h3>Audit Log Trail (Page ${auditCurrentPage})</h3>
           <div class="actions">
-            <input id="audSearch" class="input sm" placeholder="Search trail..." oninput="filterAuditTable(this.value)">
+            <input id="audSearch" class="input sm" placeholder="Search trail..." value="${esc(auditSearchQuery)}" onchange="onAuditSearchChange(this.value)">
           </div>
         </div>
         <table>
@@ -250,10 +263,10 @@ async function renderAudit() {
           <tbody id="audTableBody">
     `;
 
-    if (!list.length) {
-      html += `<tr><td colspan="6" class="empty">No audit history recorded yet.</td></tr>`;
+    if (!pageItems.length) {
+      html += `<tr><td colspan="6" class="empty">No audit history recorded matching this filter.</td></tr>`;
     } else {
-      for (const a of list) {
+      for (const a of pageItems) {
         const actionPill = a.action === "Approved" ? "ok" : (a.action === "Rejected" || a.action === "Cancelled" ? "bad" : "info");
         html += `
           <tr>
@@ -268,19 +281,29 @@ async function renderAudit() {
       }
     }
 
-    html += `</tbody></table></div>`;
+    html += `</tbody></table>
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-top:1px solid var(--border,#e2e8f0); background:var(--bg-subtle,transparent);">
+        <span class="muted" style="font-size:13px;">Showing page ${auditCurrentPage} (${pageItems.length} records)</span>
+        <div style="display:flex; gap:8px;">
+          <button class="btn ghost sm" type="button" ${auditCurrentPage <= 1 ? 'disabled' : ''} onclick="renderAudit(${auditCurrentPage - 1})">← Previous</button>
+          <button class="btn ghost sm" type="button" ${!hasMore ? 'disabled' : ''} onclick="renderAudit(${auditCurrentPage + 1})">Next →</button>
+        </div>
+      </div>
+    </div>`;
     host.innerHTML = html;
   } catch (err) {
     host.innerHTML = `<div class="empty">Failed to load audit trail: ${esc(err.message)}</div>`;
   }
 }
 
+function onAuditSearchChange(val) {
+  auditSearchQuery = (val || "").trim();
+  renderAudit(1);
+}
+
 function filterAuditTable(val) {
-  const q = val.toLowerCase();
-  const rows = document.querySelectorAll("#audTableBody tr");
-  rows.forEach(tr => {
-    tr.style.display = tr.textContent.toLowerCase().includes(q) ? "" : "none";
-  });
+  auditSearchQuery = (val || "").trim();
+  renderAudit(1);
 }
 
 async function renderFacultyDash() {

@@ -26,7 +26,10 @@ class Settings(BaseSettings):
     DB_PASSWORD: str = ""
     DB_NAME: str = "smart_campus"
     DB_POOL_NAME: str = "smart_campus_pool"
-    DB_POOL_SIZE: int = 10
+    DB_POOL_SIZE: int = 5
+    DB_SSL_CA: str = ""
+    DB_SSL_VERIFY_CERT: bool = True
+    DB_SSL_VERIFY_IDENTITY: bool = True
 
     # JWT Security Config — Strong Secret Key required
     SECRET_KEY: str = Field(default_factory=lambda: os.getenv("SECRET_KEY", ""))
@@ -58,6 +61,16 @@ class Settings(BaseSettings):
         if len(v) < 32:
             raise ValueError("SECRET_KEY must be at least 32 characters long for production security.")
         return v
+
+    @field_validator("DB_SSL_CA")
+    @classmethod
+    def validate_db_ssl_ca(cls, value: str):
+        value = (value or "").strip().strip('"').strip("'")
+        if not value:
+            return value
+        if not os.path.exists(value):
+            raise ValueError(f"DB_SSL_CA points to a missing file: {value}")
+        return value
 
     @field_validator("CAMPUS_TIMEZONE")
     @classmethod

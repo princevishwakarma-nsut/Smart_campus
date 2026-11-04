@@ -3,6 +3,14 @@ let liveCategories = [];
 let liveEquipmentInventory = [];
 let inventoryActiveTab = "resources";
 
+function sortInventoryNewestFirst(items, idField) {
+  return [...items].sort((a, b) => {
+    const timeA = Date.parse(a.created_at || "") || 0;
+    const timeB = Date.parse(b.created_at || "") || 0;
+    return timeB - timeA || Number(b[idField]) - Number(a[idField]);
+  });
+}
+
 async function fetchResources(params = {}) {
   try {
     liveResources = await api.get("/resources", params);
@@ -31,10 +39,10 @@ async function renderCatalog() {
   const host = $("view");
   host.innerHTML = `<div class="empty">Loading resources from server...</div>`;
   
-  if (!liveCategories.length) {
-    await fetchCategories();
-  }
-  await fetchResources();
+  const catalogFetches = [];
+  if (!liveCategories.length) catalogFetches.push(fetchCategories());
+  catalogFetches.push(fetchResources());
+  await Promise.all(catalogFetches);
 
   let cats = ["All", ...liveCategories.map(c => c.category_name)];
   let catOpts = cats.map(c => `<option value="${esc(c)}" ${state.filters.category === c ? 'selected' : ''}>${esc(c)}</option>`).join("");
@@ -130,8 +138,9 @@ async function renderResources() {
   $("topActions").innerHTML = "";
 
   try {
+    const categoryPromise = (liveCategories && liveCategories.length > 0) ? Promise.resolve(liveCategories) : api.get("/categories");
     const [categories, resources, equipment] = await Promise.all([
-      api.get("/categories"),
+      categoryPromise,
       api.get("/resources"),
       api.get("/equipment")
     ]);
@@ -144,7 +153,7 @@ async function renderResources() {
     const equipmentCategories = [...new Set(liveEquipmentInventory.map(item => item.category).filter(Boolean))]
       .sort().map(category => `<option value="${esc(category)}">${esc(category)}</option>`).join("");
     const activeTab = inventoryActiveTab === "equipment" ? "equipment" : "resources";
-    const resourceRows = liveResources.map(resource => {
+    const resourceRows = sortInventoryNewestFirst(liveResources, "resource_id").map(resource => {
       const statePill = resource.status === "Available"
         ? `<span class="pill ok">Available</span>`
         : `<span class="pill ${resource.status === "Maintenance" ? "warn" : "bad"}">${esc(resource.status)}</span>`;
@@ -162,7 +171,7 @@ async function renderResources() {
         </div></td>
       </tr>`;
     }).join("");
-    const equipmentRows = liveEquipmentInventory.map(item => {
+    const equipmentRows = sortInventoryNewestFirst(liveEquipmentInventory, "item_id").map(item => {
       const availability = item.is_active ? (item.availability_status || "Available") : "Inactive";
       const availabilityClass = availability === "Available" ? "ok" : (availability === "Inactive" ? "bad" : "warn");
       const condition = item.condition_status || (item.damaged_quantity ? "Damaged" : "Good");
@@ -176,7 +185,6 @@ async function renderResources() {
         <td><span class="pill ${condition === "Good" ? "ok" : "warn"}">${esc(condition)}</span></td>
         <td><div class="actions">
           <button class="btn ghost sm" type="button" onclick="openEquipmentDetails(${item.item_id})">Details</button>
-          ${item.available_quantity > 0 ? `<button class="btn ok sm" type="button" onclick="openIssueEquipmentModal(${item.item_id})">Issue</button>` : ""}
           ${item.availability_status === "Issued" || item.reserved_quantity > 0 ? `<button class="btn warn sm" type="button" onclick="openReturnEquipmentModal(${item.item_id})">Return</button>` : ""}
           <button class="btn primary sm" type="button" onclick="openEditEquipmentModal(${item.item_id})">Edit</button>
         </div></td>
@@ -196,7 +204,9 @@ async function renderResources() {
         <section class="panel inventory-panel">
           <div class="inventory-heading">
             <div><h2>Campus Resources</h2><p class="muted">Manage bookable spaces, facilities, features and operational status.</p></div>
-            <button class="btn primary" type="button" onclick="openResourceModal()">+ Add Resource</button>
+            <div class="actions">
+              <button class="btn primary" type="button" onclick="openResourceModal()">+ Add Resource</button>
+            </div>
           </div>
           <div class="inventory-filters">
             <input id="resourceInventorySearch" class="input sm" placeholder="Search resources..." oninput="filterResourceInventory()">
@@ -266,6 +276,218 @@ function filterEquipmentInventory() {
     if (matches) visible += 1;
   });
   if ($("equipmentInventoryCount")) $("equipmentInventoryCount").textContent = `${visible} of ${liveEquipmentInventory.length} equipment items`;
+}
+
+async function openOperatingHoursModal() {
+  try {
+    const [categories, resources, exceptions] = await Promise.all([
+      api.get("/categories"),
+      api.get("/resources"),
+      api.get("/resources/operating-hours/exceptions")
+    ]);
+    liveCategories = categories;
+    liveResources = resources;
+    const categoryOptions = categories.map(category => `
+      <label class="operating-target-option">
+        <input type="checkbox" class="oh-category" value="${category.category_id}">
+        <span>${esc(category.category_name)}</span>
+      </label>
+    `).join("");
+    const resourceOptions = resources.map(resource => `
+      <label class="operating-target-option" data-search="${esc(`${resource.resource_name} ${resource.category_name || ""}`.toLowerCase())}">
+        <input type="checkbox" class="oh-resource" value="${resource.resource_id}">
+        <span>${esc(resource.resource_name)} <small>${esc(resource.category_name || "Uncategorized")}</small></span>
+      </label>
+    `).join("");
+    const weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+    $("modalRoot").innerHTML = `
+      <div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
+        <section class="modal card operating-hours-modal" role="dialog" aria-modal="true" aria-labelledby="operatingHoursTitle">
+          <header class="panel-head operating-hours-header">
+            <div><h3 id="operatingHoursTitle">Resource Operating Hours</h3>
+              <p class="muted">Set recurring hours in one operation. Unselected weekdays are closed.</p></div>
+            <button class="btn icon" type="button" aria-label="Close" onclick="closeModal()">✕</button>
+          </header>
+          <div class="operating-hours-body">
+            <section class="operating-hours-section">
+              <h4>Apply operating hours to</h4>
+              <label class="operating-target-option operating-all-target">
+                <input id="ohAllResources" type="checkbox">
+                <span>All resources</span>
+              </label>
+              <div class="operating-target-columns">
+                <div><b>Categories</b><div class="operating-target-list">${categoryOptions || `<span class="muted">No categories found.</span>`}</div></div>
+                <div><b>Individual resources</b>
+                  <input id="ohResourceSearch" class="input sm operating-resource-search" type="search" aria-label="Search operating-hours resources" placeholder="Search resources..." oninput="filterOperatingResources()">
+                  <div class="operating-target-list" id="ohResourceList">${resourceOptions || `<span class="muted">No resources found.</span>`}</div>
+                </div>
+              </div>
+            </section>
+            <section class="operating-hours-section">
+              <h4>Weekly schedule</h4>
+              <div class="operating-days-heading">
+                <label class="operating-target-option"><input id="ohAllDays" type="checkbox" checked onchange="toggleAllOperatingDays(this.checked)"><span>All days</span></label>
+                <span class="muted">Opening and closing times can cross midnight.</span>
+              </div>
+              <label class="operating-target-option operating-schedule-active">
+                <input id="ohScheduleActive" type="checkbox" checked>
+                <span>Schedule active</span>
+              </label>
+              <div class="operating-weekdays">${weekdays.map(day => `
+                <label class="operating-target-option"><input class="oh-weekday" type="checkbox" value="${day}" checked onchange="syncAllOperatingDays()"><span>${day}</span></label>
+              `).join("")}</div>
+              <div class="operating-time-grid">
+                <label>Opening time<input id="ohOpenTime" class="input sm" type="time" value="08:00"></label>
+                <label>Closing time<input id="ohCloseTime" class="input sm" type="time" value="18:00"></label>
+              </div>
+              <p class="muted operating-help">Example: select All days and 08:00–18:00 for the common campus schedule.</p>
+              <div class="actions operating-hours-save"><button class="btn primary" type="button" onclick="saveOperatingHours()">Apply weekly schedule</button></div>
+            </section>
+            <section class="operating-hours-section">
+              <h4>Holiday or special-event exception</h4>
+              <div class="operating-exception-grid">
+                <label>Start date<input id="ohExceptionStart" class="input sm" type="date"></label>
+                <label>End date<input id="ohExceptionEnd" class="input sm" type="date"></label>
+              </div>
+              <label class="operating-target-option operating-closed-exception">
+                <input id="ohExceptionClosed" type="checkbox" checked onchange="toggleOperatingExceptionHours(this.checked)">
+                <span>Closed for the selected dates</span>
+              </label>
+              <div id="ohExceptionHours" class="operating-time-grid hidden">
+                <label>Opening time<input id="ohExceptionOpen" class="input sm" type="time" value="08:00"></label>
+                <label>Closing time<input id="ohExceptionClose" class="input sm" type="time" value="18:00"></label>
+              </div>
+              <label class="operating-exception-reason">Reason<input id="ohExceptionReason" class="input sm" maxlength="255" placeholder="Holiday, examination, special event..."></label>
+              <div class="actions operating-hours-save"><button class="btn ghost" type="button" onclick="createOperatingHoursException()">Add exception</button></div>
+              <div class="operating-exceptions-list" id="operatingExceptionsList">${renderOperatingExceptions(exceptions)}</div>
+            </section>
+          </div>
+          <footer class="actions operating-hours-footer">
+            <span class="muted">Changes are applied transactionally and audited.</span>
+            <button class="btn ghost" type="button" onclick="closeModal()">Close</button>
+          </footer>
+        </section>
+      </div>`;
+  } catch (error) {
+    toast(`Could not load operating hours: ${error.message}`, "err");
+  }
+}
+
+function renderOperatingExceptions(exceptions) {
+  if (!exceptions.length) return `<p class="muted">No active date exceptions.</p>`;
+  return exceptions.map(exception => `
+    <article class="operating-exception-row">
+      <div><b>${esc(exception.resource_name)}</b><span>${esc(exception.start_date)} – ${esc(exception.end_date)}</span>
+        <small>${exception.is_closed ? "Closed" : `${esc(exception.open_time)}–${esc(exception.close_time)}`} · ${esc(exception.reason)}</small></div>
+      ${exception.status === "Active" ? `<button class="btn ghost sm" type="button" onclick="cancelOperatingHoursException(${exception.exception_id})">Cancel</button>` : ""}
+    </article>
+  `).join("");
+}
+
+function filterOperatingResources() {
+  const query = ($("ohResourceSearch")?.value || "").trim().toLowerCase();
+  document.querySelectorAll("#ohResourceList .operating-target-option").forEach(option => {
+    option.hidden = !option.dataset.search.includes(query);
+  });
+}
+
+function toggleAllOperatingDays(checked) {
+  document.querySelectorAll(".oh-weekday").forEach(input => { input.checked = checked; });
+}
+
+function syncAllOperatingDays() {
+  const weekdays = [...document.querySelectorAll(".oh-weekday")];
+  $("ohAllDays").checked = weekdays.every(input => input.checked);
+  $("ohAllDays").indeterminate = weekdays.some(input => input.checked) && !$("ohAllDays").checked;
+}
+
+function toggleOperatingExceptionHours(closed) {
+  $("ohExceptionHours")?.classList.toggle("hidden", closed);
+}
+
+function getOperatingHoursTargets() {
+  return {
+    all_resources: $("ohAllResources").checked,
+    category_ids: [...document.querySelectorAll(".oh-category:checked")].map(input => Number(input.value)),
+    resource_ids: [...document.querySelectorAll(".oh-resource:checked")].map(input => Number(input.value)),
+  };
+}
+
+function validateOperatingHoursTargets(targets) {
+  if (!targets.all_resources && !targets.category_ids.length && !targets.resource_ids.length) {
+    toast("Select all resources, at least one category, or individual resources.", "err");
+    return false;
+  }
+  return true;
+}
+
+async function saveOperatingHours() {
+  const targets = getOperatingHoursTargets();
+  if (!validateOperatingHoursTargets(targets)) return;
+  const weekdays = [...document.querySelectorAll(".oh-weekday:checked")].map(input => input.value);
+  const closedDays = [...document.querySelectorAll(".oh-weekday:not(:checked)")].map(input => input.value);
+  if (weekdays.length && (!$("ohOpenTime").value || !$("ohCloseTime").value || $("ohOpenTime").value === $("ohCloseTime").value)) {
+    toast("Choose different opening and closing times.", "err");
+    return;
+  }
+  try {
+    const result = await api.put("/resources/operating-hours/bulk", {
+      ...targets,
+      is_active: $("ohScheduleActive").checked,
+      weekdays,
+      closed_days: closedDays,
+      open_time: weekdays.length ? $("ohOpenTime").value : null,
+      close_time: weekdays.length ? $("ohCloseTime").value : null,
+    });
+    toast(`Operating hours applied to ${result.resource_count} resource(s).`, "ok");
+  } catch (error) {
+    toast(`Could not apply operating hours: ${error.message}`, "err");
+  }
+}
+
+async function createOperatingHoursException() {
+  const targets = getOperatingHoursTargets();
+  if (!validateOperatingHoursTargets(targets)) return;
+  const startDate = $("ohExceptionStart").value;
+  const endDate = $("ohExceptionEnd").value;
+  const isClosed = $("ohExceptionClosed").checked;
+  const reason = $("ohExceptionReason").value.trim();
+  if (!startDate || !endDate || endDate < startDate || !reason) {
+    toast("Choose a valid date range and enter an exception reason.", "err");
+    return;
+  }
+  if (!isClosed && (!$("ohExceptionOpen").value || !$("ohExceptionClose").value ||
+      $("ohExceptionOpen").value === $("ohExceptionClose").value)) {
+    toast("Choose different opening and closing times for the exception.", "err");
+    return;
+  }
+  try {
+    const result = await api.post("/resources/operating-hours/exceptions", {
+      ...targets,
+      start_date: startDate,
+      end_date: endDate,
+      is_closed: isClosed,
+      open_time: isClosed ? null : $("ohExceptionOpen").value,
+      close_time: isClosed ? null : $("ohExceptionClose").value,
+      reason,
+    });
+    const exceptions = await api.get("/resources/operating-hours/exceptions");
+    $("operatingExceptionsList").innerHTML = renderOperatingExceptions(exceptions);
+    toast(`Date exception applied to ${result.resource_count} resource(s).`, "ok");
+  } catch (error) {
+    toast(`Could not add operating-hours exception: ${error.message}`, "err");
+  }
+}
+
+async function cancelOperatingHoursException(exceptionId) {
+  try {
+    await api.patch(`/resources/operating-hours/exceptions/${exceptionId}/cancel`);
+    const exceptions = await api.get("/resources/operating-hours/exceptions");
+    $("operatingExceptionsList").innerHTML = renderOperatingExceptions(exceptions);
+    toast("Operating-hours exception cancelled; its history was retained.", "ok");
+  } catch (error) {
+    toast(`Could not cancel exception: ${error.message}`, "err");
+  }
 }
 
 async function quickToggleStatus(id, newStatus) {
@@ -489,6 +711,14 @@ window.renderResources = renderResources;
 window.setInventoryTab = setInventoryTab;
 window.renderCatalog = renderCatalog;
 window.openResourceModal = openResourceModal;
+window.openOperatingHoursModal = openOperatingHoursModal;
+window.saveOperatingHours = saveOperatingHours;
+window.filterOperatingResources = filterOperatingResources;
+window.toggleAllOperatingDays = toggleAllOperatingDays;
+window.syncAllOperatingDays = syncAllOperatingDays;
+window.toggleOperatingExceptionHours = toggleOperatingExceptionHours;
+window.createOperatingHoursException = createOperatingHoursException;
+window.cancelOperatingHoursException = cancelOperatingHoursException;
 window.saveResource = saveResource;
 window.filterResourceInventory = filterResourceInventory;
 window.filterEquipmentInventory = filterEquipmentInventory;

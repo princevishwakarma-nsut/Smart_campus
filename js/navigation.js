@@ -41,26 +41,37 @@ const VIEW_ACCESS = {
 let currentPendingCount = 0;
 let lastPendingBookingKey = null;
 let lastMyBookingKey = null;
-let lastAllBookingKey = null;
+let lastBadgeCheckTime = 0;
 
 function updatePendingBadge(count) {
   currentPendingCount = count;
   renderNav();
 }
 
-async function checkBadges() {
+async function checkBadges(force = false) {
   if (document.visibilityState === "hidden" || !api.getToken() || !getCurrentUser()) return;
+  const now = Date.now();
+  if (!force && (now - lastBadgeCheckTime < 10000)) return;
+  lastBadgeCheckTime = now;
 
+  const notificationTasks = [];
   if (typeof fetchUnreadNotificationCount === "function") {
-    await fetchUnreadNotificationCount();
+    notificationTasks.push(fetchUnreadNotificationCount());
   }
   if (typeof refreshNotificationPanel === "function") {
-    refreshNotificationPanel();
+    notificationTasks.push(refreshNotificationPanel());
   }
+
+  try {
+    await Promise.allSettled(notificationTasks);
+  } catch (err) {
+    console.error("Notification refresh failed:", err);
+  }
+
   if (typeof isAdmin === "function" && isAdmin()) {
     try {
       const list = await api.get("/approvals/pending");
-      if (list && Array.isArray(list)) {
+      if (Array.isArray(list)) {
         const key = list.map(booking => `${booking.booking_id}:${booking.status}`).sort().join("|");
         if (currentPendingCount !== list.length) {
           currentPendingCount = list.length;
@@ -70,15 +81,8 @@ async function checkBadges() {
             ["adminDash", "approvals"].includes(state.view)) render();
         lastPendingBookingKey = key;
       }
-
-      if (state.view === "allbookings") {
-        const bookings = await api.get("/bookings");
-        const key = bookings.map(booking => `${booking.booking_id}:${booking.status}:${booking.updated_at || ""}`).join("|");
-        if (lastAllBookingKey !== null && key !== lastAllBookingKey) render();
-        lastAllBookingKey = key;
-      }
     } catch (err) {
-      console.error("Could not refresh booking updates:", err);
+      console.error("Could not refresh pending approvals count:", err);
     }
   } else if (["mybookings", "myschedule", "facultyDash"].includes(state.view)) {
     try {
@@ -87,7 +91,7 @@ async function checkBadges() {
       if (state.view === "myschedule") {
         const schedule = await api.get("/bookings/my/schedule");
         scheduleDate = schedule.today;
-        bookings = [...schedule.today_bookings, ...schedule.upcoming_bookings];
+        bookings = [...(schedule.today_bookings || []), ...(schedule.upcoming_bookings || [])];
       } else {
         bookings = await api.get("/bookings/my");
       }

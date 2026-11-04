@@ -1,6 +1,8 @@
 import sys
 import os
+import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from unittest import mock
@@ -358,6 +360,7 @@ class SmartCampusComprehensiveTests(unittest.TestCase):
             self.assertEqual(approved_booking["status"], "Approved")
             self.assertEqual(approved_booking["start_time"], start.isoformat())
             self.assertEqual(approved_booking["equipment"][0]["item_id"], item_id)
+            self.assertEqual(approved_booking["equipment"][0]["issued_quantity"], 0)
             student_feed_after_approval = client.get(
                 "/api/v1/notifications",
                 headers=self.student_headers,
@@ -401,6 +404,245 @@ class SmartCampusComprehensiveTests(unittest.TestCase):
                 cursor.execute("DELETE FROM booking_audit WHERE booking_id = %s", (booking_id,))
                 cursor.execute("DELETE FROM bookings WHERE booking_id = %s", (booking_id,))
             cursor.execute("DELETE FROM equipment_items WHERE item_id = %s", (item_id,))
+            conn.commit()
+            cursor.close()
+            conn.close()
+
+    def test_equipment_weekday_blackout_conflicts_and_blocks_booking(self):
+        marker = f"equipment-blackout-{int(datetime.now().timestamp() * 1000)}"
+        equipment = client.post(
+            "/api/v1/equipment",
+            headers=self.admin_headers,
+            json={
+                "item_name": marker,
+                "item_code": marker,
+                "category": "Other",
+                "unit": "Piece",
+                "total_quantity": 2,
+                "location": "Test Store",
+            },
+        )
+        self.assertEqual(equipment.status_code, 201, equipment.text)
+        item_id = equipment.json()["item_id"]
+        blackout_group_ids = []
+        blackout_ids = []
+        booking_id = None
+
+        try:
+            today = datetime.now(ZoneInfo(settings.CAMPUS_TIMEZONE)).date()
+            days_until_monday = (7 - today.weekday()) % 7
+            if days_until_monday < 3:
+                days_until_monday += 7
+            monday = today + timedelta(days=days_until_monday)
+            blackout_start = datetime.combine(monday, datetime.min.time()).replace(hour=9)
+            blackout_end = datetime.combine(monday + timedelta(days=4), datetime.min.time()).replace(hour=11)
+            booking_start = blackout_start + timedelta(minutes=30)
+            booking_end = booking_start + timedelta(minutes=30)
+
+            booking = client.post(
+                "/api/v1/bookings",
+                headers=self.student_headers,
+                json={
+                    "start_time": booking_start.isoformat(),
+                    "end_time": booking_end.isoformat(),
+                    "purpose": f"{marker} pre-existing booking",
+                    "equipment_requests": [{"item_id": item_id, "quantity": 1}],
+                },
+            )
+            self.assertEqual(booking.status_code, 201, booking.text)
+            booking_id = booking.json()["booking_id"]
+
+            blackout_payload = {
+                "equipment_ids": [item_id],
+                "start_datetime": blackout_start.isoformat(),
+                "end_datetime": blackout_end.isoformat(),
+                "repeat_weekdays": [0, 1, 2, 3, 4],
+                "reason_category": "Maintenance",
+                "reason_explanation": f"{marker} equipment maintenance",
+            }
+            preview = client.post(
+                "/api/v1/blackouts/equipment/conflicts",
+                headers=self.admin_headers,
+                json={key: value for key, value in blackout_payload.items() if key != "reason_category" and key != "reason_explanation"},
+            )
+            self.assertEqual(preview.status_code, 200, preview.text)
+            self.assertEqual(preview.json()["occurrence_count"], 5)
+            self.assertEqual(preview.json()["conflict_count"], 1)
+
+            rejected = client.post(
+                "/api/v1/blackouts/equipment",
+                headers=self.admin_headers,
+                json=blackout_payload,
+            )
+            self.assertEqual(rejected.status_code, 409, rejected.text)
+            self.assertTrue(rejected.json()["detail"]["confirmation_required"])
+
+            created = client.post(
+                "/api/v1/blackouts/equipment",
+                headers=self.admin_headers,
+                json={**blackout_payload, "confirm_booking_conflicts": True},
+            )
+            self.assertEqual(created.status_code, 201, created.text)
+            self.assertEqual(created.json()["occurrence_count"], 5)
+            self.assertEqual(created.json()["equipment_count"], 1)
+            blackout_group_ids.extend(created.json()["blackout_group_ids"])
+            blackout_ids.extend(created.json()["blackout_ids"])
+
+            existing_booking = client.get(
+                f"/api/v1/bookings/{booking_id}",
+                headers=self.student_headers,
+            )
+            self.assertEqual(existing_booking.status_code, 200, existing_booking.text)
+            self.assertEqual(existing_booking.json()["status"], booking.json()["status"])
+
+            blocked = client.post(
+                "/api/v1/bookings",
+                headers=self.student_headers,
+                json={
+                    "start_time": booking_start.isoformat(),
+                    "end_time": booking_end.isoformat(),
+                    "purpose": f"{marker} blocked booking",
+                    "equipment_requests": [{"item_id": item_id, "quantity": 1}],
+                },
+            )
+            self.assertEqual(blocked.status_code, 409, blocked.text)
+            self.assertIn(f"{marker} equipment maintenance", blocked.json()["detail"])
+
+            availability = client.get(
+                f"/api/v1/equipment/{item_id}/availability",
+                params={
+                    "start_time": booking_start.isoformat(),
+                    "end_time": booking_end.isoformat(),
+                },
+            )
+            self.assertEqual(availability.status_code, 200, availability.text)
+            self.assertEqual(availability.json()["available_quantity"], 0)
+            self.assertEqual(availability.json()["blackout"]["reason_category"], "Maintenance")
+
+            outside = client.get(
+                f"/api/v1/equipment/{item_id}/availability",
+                params={
+                    "start_time": (monday + timedelta(days=5)).isoformat() + "T10:00:00",
+                    "end_time": (monday + timedelta(days=5)).isoformat() + "T11:00:00",
+                },
+            )
+            self.assertEqual(outside.status_code, 200, outside.text)
+            self.assertEqual(outside.json()["available_quantity"], 2)
+
+            listed = client.get("/api/v1/blackouts/equipment", headers=self.admin_headers)
+            self.assertEqual(listed.status_code, 200, listed.text)
+            self.assertEqual(
+                len([row for row in listed.json() if row["blackout_group_id"] in blackout_group_ids]),
+                5,
+            )
+            cancelled = client.patch(
+                f"/api/v1/blackouts/equipment/{blackout_ids[0]}/cancel",
+                headers=self.admin_headers,
+            )
+            self.assertEqual(cancelled.status_code, 200, cancelled.text)
+            self.assertEqual(cancelled.json()["cancelled_count"], 1)
+        finally:
+            conn = get_connection_pool().get_connection()
+            cursor = conn.cursor()
+            if booking_id:
+                cursor.execute("DELETE FROM notifications WHERE booking_id = %s", (booking_id,))
+                cursor.execute("DELETE FROM booking_participants WHERE booking_id = %s", (booking_id,))
+                cursor.execute("DELETE FROM booking_equipment_items WHERE booking_id = %s", (booking_id,))
+                cursor.execute("DELETE FROM booking_approvals WHERE booking_id = %s", (booking_id,))
+                cursor.execute("DELETE FROM booking_audit WHERE booking_id = %s", (booking_id,))
+                cursor.execute("DELETE FROM bookings WHERE booking_id = %s", (booking_id,))
+            if blackout_ids:
+                placeholders = ",".join(["%s"] * len(blackout_ids))
+                cursor.execute(
+                    f"DELETE FROM system_audit WHERE entity_type = 'EquipmentBlackout' AND entity_id IN ({placeholders})",
+                    tuple(blackout_ids),
+                )
+            if blackout_group_ids:
+                placeholders = ",".join(["%s"] * len(blackout_group_ids))
+                cursor.execute(
+                    f"DELETE FROM equipment_blackout_periods WHERE blackout_group_id IN ({placeholders})",
+                    tuple(blackout_group_ids),
+                )
+            cursor.execute("DELETE FROM equipment_items WHERE item_id = %s", (item_id,))
+            conn.commit()
+            cursor.close()
+            conn.close()
+
+    def test_resource_weekday_blackout_expands_and_blocks_booking(self):
+        marker = f"resource-weekday-blackout-{int(datetime.now().timestamp() * 1000)}"
+        categories = client.get("/api/v1/categories")
+        self.assertEqual(categories.status_code, 200, categories.text)
+        category_id = categories.json()[0]["category_id"]
+        created_resource = client.post(
+            "/api/v1/resources",
+            headers=self.admin_headers,
+            json={
+                "category_id": category_id,
+                "resource_name": marker,
+                "resource_code": marker,
+                "location": "Blackout weekday test",
+                "capacity": 12,
+                "status": "Available",
+            },
+        )
+        self.assertEqual(created_resource.status_code, 201, created_resource.text)
+        resource_id = created_resource.json()["resource_id"]
+        blackout_ids = []
+        booking_ids = []
+
+        try:
+            today = datetime.now(ZoneInfo(settings.CAMPUS_TIMEZONE)).date()
+            days_until_monday = (7 - today.weekday()) % 7
+            if days_until_monday < 3:
+                days_until_monday += 7
+            monday = today + timedelta(days=days_until_monday)
+            blackout_start = datetime.combine(monday, datetime.min.time()).replace(hour=9)
+            blackout_end = datetime.combine(monday + timedelta(days=4), datetime.min.time()).replace(hour=11)
+            payload = {
+                "resource_ids": [resource_id],
+                "start_datetime": blackout_start.isoformat(),
+                "end_datetime": blackout_end.isoformat(),
+                "repeat_weekdays": [0, 1, 2, 3, 4],
+                "reason_category": "Maintenance",
+                "reason_explanation": f"{marker} weekday repair",
+            }
+            preview = client.post("/api/v1/blackouts/conflicts", headers=self.admin_headers, json=payload)
+            self.assertEqual(preview.status_code, 200, preview.text)
+            self.assertEqual(preview.json()["occurrence_count"], 5)
+            created = client.post("/api/v1/blackouts", headers=self.admin_headers, json=payload)
+            self.assertEqual(created.status_code, 201, created.text)
+            self.assertEqual(created.json()["occurrence_count"], 5)
+            self.assertEqual(created.json()["resource_count"], 1)
+            blackout_ids.extend(created.json()["blackout_ids"])
+
+            requested_start = datetime.combine(monday + timedelta(days=2), datetime.min.time()).replace(hour=9, minute=30)
+            blocked = client.post(
+                "/api/v1/bookings",
+                headers=self.student_headers,
+                json={
+                    "resource_id": resource_id,
+                    "start_time": requested_start.isoformat(),
+                    "end_time": (requested_start + timedelta(minutes=30)).isoformat(),
+                    "purpose": f"{marker} blocked booking",
+                },
+            )
+            self.assertEqual(blocked.status_code, 409, blocked.text)
+            self.assertIn(f"{marker} weekday repair", blocked.json()["detail"])
+        finally:
+            conn = get_connection_pool().get_connection()
+            cursor = conn.cursor()
+            if blackout_ids:
+                placeholders = ",".join(["%s"] * len(blackout_ids))
+                cursor.execute(
+                    f"DELETE FROM system_audit WHERE entity_type = 'Blackout' AND entity_id IN ({placeholders})",
+                    tuple(blackout_ids),
+                )
+                cursor.execute(
+                    f"DELETE FROM resource_blackout_periods WHERE blackout_id IN ({placeholders})",
+                    tuple(blackout_ids),
+                )
+            cursor.execute("DELETE FROM resource_features WHERE resource_id = %s", (resource_id,))
+            cursor.execute("DELETE FROM resources WHERE resource_id = %s", (resource_id,))
             conn.commit()
             cursor.close()
             conn.close()
@@ -810,6 +1052,21 @@ class SmartCampusComprehensiveTests(unittest.TestCase):
                 )
                 self.assertEqual(response.status_code, 201, response.text)
                 resource_ids.append(response.json()["resource_id"])
+            for index in range(41):
+                response = client.post(
+                    "/api/v1/resources",
+                    headers=self.admin_headers,
+                    json={
+                        "category_id": category_ids[index % 2],
+                        "resource_name": f"{marker} Bulk Resource {index + 3}",
+                        "resource_code": f"BR-{marker[-7:]}-{index + 3}",
+                        "location": "Blackout Test Block",
+                        "capacity": 20,
+                        "status": "Available",
+                    },
+                )
+                self.assertEqual(response.status_code, 201, response.text)
+                resource_ids.append(response.json()["resource_id"])
 
             first_booking = client.post(
                 "/api/v1/bookings",
@@ -831,6 +1088,27 @@ class SmartCampusComprehensiveTests(unittest.TestCase):
                 "start_datetime": start.isoformat(),
                 "end_datetime": (start + timedelta(hours=2)).isoformat(),
             }
+            invalid_blackout_date = client.post(
+                "/api/v1/blackouts",
+                headers=self.admin_headers,
+                json={
+                    **conflict_payload,
+                    "start_datetime": start.isoformat(),
+                    "end_datetime": start.isoformat(),
+                    "reason_category": "Maintenance",
+                    "reason_explanation": f"{marker} invalid date range",
+                },
+            )
+            self.assertEqual(invalid_blackout_date.status_code, 422, invalid_blackout_date.text)
+            missing_blackout_reason = client.post(
+                "/api/v1/blackouts",
+                headers=self.admin_headers,
+                json={
+                    **conflict_payload,
+                    "reason_category": "Maintenance",
+                },
+            )
+            self.assertEqual(missing_blackout_reason.status_code, 422, missing_blackout_reason.text)
             preview = client.post(
                 "/api/v1/blackouts/conflicts",
                 headers=self.admin_headers,
@@ -863,6 +1141,45 @@ class SmartCampusComprehensiveTests(unittest.TestCase):
             )
             self.assertEqual(rejected_creation.status_code, 409, rejected_creation.text)
             self.assertEqual(len(rejected_creation.json()["detail"]["conflicts"]), 1)
+            self.assertTrue(rejected_creation.json()["detail"]["confirmation_required"])
+            confirmed_creation = client.post(
+                "/api/v1/blackouts",
+                headers=self.admin_headers,
+                json={
+                    **conflict_payload,
+                    "reason_category": "Maintenance",
+                    "reason_explanation": f"{marker} confirmed projector maintenance",
+                    "confirm_booking_conflicts": True,
+                },
+            )
+            self.assertEqual(confirmed_creation.status_code, 201, confirmed_creation.text)
+            self.assertEqual(confirmed_creation.json()["resource_count"], 1)
+            blackout_group_ids.append(confirmed_creation.json()["blackout_group_id"])
+            blackout_ids.extend(confirmed_creation.json()["blackout_ids"])
+            booking_after_confirmation = client.get(
+                f"/api/v1/bookings/{booking_id}",
+                headers=self.student_headers,
+            )
+            self.assertEqual(booking_after_confirmation.status_code, 200, booking_after_confirmation.text)
+            self.assertEqual(booking_after_confirmation.json()["status"], first_booking.json()["status"])
+            notification_conn = get_connection_pool().get_connection()
+            notification_cursor = notification_conn.cursor(dictionary=True)
+            notification_cursor.execute(
+                """
+                SELECT notification_id, message FROM notifications
+                WHERE user_id = %s AND booking_id = %s AND audience = 'User'
+                  AND message LIKE %s
+                """,
+                (self.student_id, booking_id, "%confirmed projector maintenance%"),
+            )
+            self.assertTrue(notification_cursor.fetchall())
+            notification_cursor.close()
+            notification_conn.close()
+            cancelled_blackout = client.patch(
+                f"/api/v1/blackouts/{confirmed_creation.json()['blackout_id']}/cancel",
+                headers=self.admin_headers,
+            )
+            self.assertEqual(cancelled_blackout.status_code, 200, cancelled_blackout.text)
 
             cancelled = client.patch(
                 f"/api/v1/bookings/{booking_id}/cancel",
@@ -958,6 +1275,47 @@ class SmartCampusComprehensiveTests(unittest.TestCase):
             group_id = group_create.json()["blackout_group_id"]
             blackout_group_ids.append(group_id)
             blackout_ids.extend(group_create.json()["blackout_ids"])
+
+            all_resources_payload = {
+                "resource_ids": resource_ids,
+                "category_ids": [],
+                "start_datetime": (bulk_start + timedelta(days=10)).isoformat(),
+                "end_datetime": (bulk_start + timedelta(days=10, hours=2)).isoformat(),
+                "reason_category": "Cleaning",
+                "reason_explanation": f"{marker} all 44 resource blackout",
+            }
+            all_resources_created = client.post(
+                "/api/v1/blackouts",
+                headers=self.admin_headers,
+                json=all_resources_payload,
+            )
+            self.assertEqual(all_resources_created.status_code, 201, all_resources_created.text)
+            self.assertEqual(all_resources_created.json()["resource_count"], 44)
+            self.assertEqual(len(set(all_resources_created.json()["blackout_ids"])), 44)
+            blackout_group_ids.append(all_resources_created.json()["blackout_group_id"])
+            blackout_ids.extend(all_resources_created.json()["blackout_ids"])
+            verification_conn = get_connection_pool().get_connection()
+            verification_cursor = verification_conn.cursor(dictionary=True)
+            verification_cursor.execute(
+                "SELECT COUNT(*) AS count FROM resource_blackout_periods WHERE blackout_group_id = %s",
+                (all_resources_created.json()["blackout_group_id"],),
+            )
+            self.assertEqual(verification_cursor.fetchone()["count"], 44)
+            verification_cursor.close()
+            verification_conn.close()
+            persisted_group = client.get(
+                "/api/v1/blackouts",
+                headers=self.admin_headers,
+                params={"status": "Active"},
+            )
+            self.assertEqual(persisted_group.status_code, 200, persisted_group.text)
+            self.assertEqual(
+                len([
+                    row for row in persisted_group.json()
+                    if row["blackout_group_id"] == all_resources_created.json()["blackout_group_id"]
+                ]),
+                44,
+            )
 
             pool = get_connection_pool()
             conn = pool.get_connection()
@@ -1102,6 +1460,524 @@ class SmartCampusComprehensiveTests(unittest.TestCase):
             if extra_admin_id:
                 cursor.execute("DELETE FROM notifications WHERE user_id = %s", (extra_admin_id,))
                 cursor.execute("DELETE FROM users WHERE user_id = %s", (extra_admin_id,))
+            conn.commit()
+            cursor.close()
+            conn.close()
+
+    def test_bulk_operating_hours_combines_categories_and_individual_resources(self):
+        """A single schedule operation combines category and individual selections without duplicates."""
+        marker = f"hours-bulk-{int(datetime.now().timestamp() * 1000)}"
+        category_ids = []
+        resource_ids = []
+        pool = get_connection_pool()
+        try:
+            for suffix in ("A", "B"):
+                category = client.post(
+                    "/api/v1/categories",
+                    headers=self.admin_headers,
+                    json={"category_name": f"{marker} {suffix}", "description": "Temporary integration-test category"},
+                )
+                self.assertEqual(category.status_code, 201, category.text)
+                category_ids.append(category.json()["category_id"])
+
+            for index, category_id in enumerate((category_ids[0], category_ids[0], category_ids[1])):
+                resource = client.post(
+                    "/api/v1/resources",
+                    headers=self.admin_headers,
+                    json={
+                        "category_id": category_id,
+                        "resource_name": f"{marker} Resource {index}",
+                        "resource_code": f"HB-{marker[-9:]}-{index}",
+                        "location": "Operating Hours Bulk Test",
+                        "capacity": 10,
+                        "status": "Available",
+                    },
+                )
+                self.assertEqual(resource.status_code, 201, resource.text)
+                resource_ids.append(resource.json()["resource_id"])
+
+            update = client.put(
+                "/api/v1/resources/operating-hours/bulk",
+                headers=self.admin_headers,
+                json={
+                    "category_ids": [category_ids[0]],
+                    "resource_ids": [resource_ids[0], resource_ids[2]],
+                    "weekdays": ["Monday"],
+                    "closed_days": ["Tuesday"],
+                    "open_time": "08:00",
+                    "close_time": "18:00",
+                },
+            )
+            self.assertEqual(update.status_code, 200, update.text)
+            self.assertEqual(update.json()["resource_count"], 3)
+            self.assertEqual(
+                {item["resource_id"] for item in update.json()["resources"]},
+                set(resource_ids),
+            )
+
+            conn = pool.get_connection()
+            cursor = conn.cursor()
+            try:
+                placeholders = ",".join(["%s"] * len(resource_ids))
+                cursor.execute(
+                    f"SELECT DISTINCT resource_id FROM resource_operating_hours WHERE resource_id IN ({placeholders})",
+                    tuple(resource_ids),
+                )
+                self.assertEqual({row[0] for row in cursor.fetchall()}, set(resource_ids))
+            finally:
+                cursor.close()
+                conn.close()
+        finally:
+            if resource_ids or category_ids:
+                conn = pool.get_connection()
+                cursor = conn.cursor()
+                try:
+                    if resource_ids:
+                        placeholders = ",".join(["%s"] * len(resource_ids))
+                        cursor.execute(
+                            f"DELETE FROM system_audit WHERE entity_type = 'ResourceOperatingHours' AND entity_id IN ({placeholders})",
+                            tuple(resource_ids),
+                        )
+                        cursor.execute(
+                            f"DELETE FROM resource_operating_hours WHERE resource_id IN ({placeholders})",
+                            tuple(resource_ids),
+                        )
+                        cursor.execute(
+                            f"DELETE FROM resource_features WHERE resource_id IN ({placeholders})",
+                            tuple(resource_ids),
+                        )
+                        cursor.execute(f"DELETE FROM resources WHERE resource_id IN ({placeholders})", tuple(resource_ids))
+                    if category_ids:
+                        placeholders = ",".join(["%s"] * len(category_ids))
+                        cursor.execute(f"DELETE FROM categories WHERE category_id IN ({placeholders})", tuple(category_ids))
+                    conn.commit()
+                finally:
+                    cursor.close()
+                    conn.close()
+
+    def test_operating_hours_booking_overlaps_and_concurrent_users(self):
+        """Exercise recurring hours, overlap boundaries, and resource-row concurrency against MySQL."""
+        marker = f"hours-race-{int(datetime.now().timestamp() * 1000)}"
+        categories = client.get("/api/v1/categories")
+        self.assertEqual(categories.status_code, 200, categories.text)
+        category_id = categories.json()[0]["category_id"]
+        resource = client.post(
+            "/api/v1/resources",
+            headers=self.admin_headers,
+            json={
+                "category_id": category_id,
+                "resource_name": f"{marker} Room",
+                "resource_code": f"OH-{marker[-10:]}",
+                "location": "Operating Hours Test Block",
+                "capacity": 20,
+                "status": "Available",
+            },
+        )
+        self.assertEqual(resource.status_code, 201, resource.text)
+        resource_id = resource.json()["resource_id"]
+        second_user_id = None
+        booking_ids = []
+        exception_ids = []
+        pool = get_connection_pool()
+        conn = pool.get_connection()
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute(
+                """
+                INSERT INTO users (name, email, password_hash, role, is_active)
+                VALUES (%s, %s, %s, 'Student', 1)
+                """,
+                (f"{marker} Student B", f"{marker}@campus.edu", get_password_hash("HoursRacePass123!")),
+            )
+            second_user_id = cursor.lastrowid
+            conn.commit()
+            second_token = create_access_token(
+                subject=second_user_id,
+                extra_claims={"email": f"{marker}@campus.edu", "role": "Student", "name": f"{marker} Student B"},
+            )
+            second_headers = {"Authorization": f"Bearer {second_token}"}
+
+            all_days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+            update = client.put(
+                "/api/v1/resources/operating-hours/bulk",
+                headers=self.admin_headers,
+                json={
+                    "resource_ids": [resource_id, resource_id],
+                    "weekdays": all_days,
+                    "closed_days": [],
+                    "open_time": "08:00",
+                    "close_time": "18:00",
+                },
+            )
+            self.assertEqual(update.status_code, 200, update.text)
+            self.assertEqual(update.json()["resource_count"], 1)
+
+            campus_now = datetime.now(ZoneInfo(settings.CAMPUS_TIMEZONE)).replace(tzinfo=None)
+            target_date = (campus_now + timedelta(days=5)).date()
+
+            def submit(headers, start, end, purpose):
+                return client.post(
+                    "/api/v1/bookings",
+                    headers=headers,
+                    json={
+                        "resource_id": resource_id,
+                        "start_time": f"{target_date.isoformat()}T{start}:00",
+                        "end_time": f"{target_date.isoformat()}T{end}:00",
+                        "purpose": f"{marker} {purpose}",
+                    },
+                )
+
+            for start, end in (("09:00", "10:00"), ("17:00", "18:00")):
+                allowed = submit(self.student_headers, start, end, "within operating hours")
+                self.assertEqual(allowed.status_code, 201, allowed.text)
+                booking_ids.append(allowed.json()["booking_id"])
+
+            for start, end in (("07:00", "08:00"), ("18:30", "19:30")):
+                outside = submit(self.student_headers, start, end, "outside operating hours")
+                self.assertEqual(outside.status_code, 409, outside.text)
+                self.assertIn("operating hours", outside.json()["detail"].lower())
+
+            first = submit(self.student_headers, "10:00", "12:00", "overlap baseline")
+            self.assertEqual(first.status_code, 201, first.text)
+            booking_ids.append(first.json()["booking_id"])
+            for start, end in (
+                ("10:00", "12:00"),
+                ("09:00", "11:00"),
+                ("11:00", "13:00"),
+                ("10:30", "11:30"),
+                ("09:00", "13:00"),
+            ):
+                overlap = submit(second_headers, start, end, "overlap attempt")
+                self.assertEqual(overlap.status_code, 409, overlap.text)
+                self.assertIn("already reserved", overlap.json()["detail"])
+                self.assertNotIn(f"{marker} Student", overlap.json()["detail"])
+
+            adjacent = submit(second_headers, "12:00", "14:00", "adjacent reservation")
+            self.assertEqual(adjacent.status_code, 201, adjacent.text)
+            booking_ids.append(adjacent.json()["booking_id"])
+
+            closed_date = target_date + timedelta(days=1)
+            closed_weekday = closed_date.strftime("%A")
+            weekly_closed = client.put(
+                "/api/v1/resources/operating-hours/bulk",
+                headers=self.admin_headers,
+                json={
+                    "resource_ids": [resource_id],
+                    "weekdays": [day for day in all_days if day != closed_weekday],
+                    "closed_days": [closed_weekday],
+                    "open_time": "08:00",
+                    "close_time": "18:00",
+                },
+            )
+            self.assertEqual(weekly_closed.status_code, 200, weekly_closed.text)
+            closed_day_booking = client.post(
+                "/api/v1/bookings",
+                headers=self.student_headers,
+                json={
+                    "resource_id": resource_id,
+                    "start_time": f"{closed_date.isoformat()}T09:00:00",
+                    "end_time": f"{closed_date.isoformat()}T10:00:00",
+                    "purpose": f"{marker} closed weekday",
+                },
+            )
+            self.assertEqual(closed_day_booking.status_code, 409, closed_day_booking.text)
+            self.assertIn("closed", closed_day_booking.json()["detail"].lower())
+
+            weekly_open = client.put(
+                "/api/v1/resources/operating-hours/bulk",
+                headers=self.admin_headers,
+                json={
+                    "resource_ids": [resource_id],
+                    "weekdays": all_days,
+                    "closed_days": [],
+                    "open_time": "08:00",
+                    "close_time": "18:00",
+                },
+            )
+            self.assertEqual(weekly_open.status_code, 200, weekly_open.text)
+            exception_date = target_date + timedelta(days=2)
+            exception = client.post(
+                "/api/v1/resources/operating-hours/exceptions",
+                headers=self.admin_headers,
+                json={
+                    "resource_ids": [resource_id],
+                    "start_date": exception_date.isoformat(),
+                    "end_date": exception_date.isoformat(),
+                    "is_closed": True,
+                    "reason": f"{marker} campus holiday",
+                },
+            )
+            self.assertEqual(exception.status_code, 201, exception.text)
+            exception_ids.extend(exception.json()["exception_ids"])
+            exception_booking = client.post(
+                "/api/v1/bookings",
+                headers=self.student_headers,
+                json={
+                    "resource_id": resource_id,
+                    "start_time": f"{exception_date.isoformat()}T09:00:00",
+                    "end_time": f"{exception_date.isoformat()}T10:00:00",
+                    "purpose": f"{marker} exception date",
+                },
+            )
+            self.assertEqual(exception_booking.status_code, 409, exception_booking.text)
+            self.assertIn(f"{marker} campus holiday", exception_booking.json()["detail"])
+
+            overnight = client.put(
+                "/api/v1/resources/operating-hours/bulk",
+                headers=self.admin_headers,
+                json={
+                    "resource_ids": [resource_id],
+                    "weekdays": all_days,
+                    "closed_days": [],
+                    "open_time": "20:00",
+                    "close_time": "02:00",
+                },
+            )
+            self.assertEqual(overnight.status_code, 200, overnight.text)
+            overnight_date = target_date + timedelta(days=4)
+            overnight_booking = client.post(
+                "/api/v1/bookings",
+                headers=self.student_headers,
+                json={
+                    "resource_id": resource_id,
+                    "start_time": f"{overnight_date.isoformat()}T00:30:00",
+                    "end_time": f"{overnight_date.isoformat()}T01:30:00",
+                    "purpose": f"{marker} overnight opening",
+                },
+            )
+            self.assertEqual(overnight_booking.status_code, 201, overnight_booking.text)
+            booking_ids.append(overnight_booking.json()["booking_id"])
+
+            daytime = client.put(
+                "/api/v1/resources/operating-hours/bulk",
+                headers=self.admin_headers,
+                json={
+                    "resource_ids": [resource_id],
+                    "weekdays": all_days,
+                    "closed_days": [],
+                    "open_time": "08:00",
+                    "close_time": "18:00",
+                },
+            )
+            self.assertEqual(daytime.status_code, 200, daytime.text)
+            race_date = target_date + timedelta(days=6)
+            race_start = datetime.combine(race_date, datetime.min.time()).replace(hour=10)
+            barrier = threading.Barrier(2)
+
+            def simultaneous_request(headers, purpose):
+                barrier.wait(timeout=10)
+                return client.post(
+                    "/api/v1/bookings",
+                    headers=headers,
+                    json={
+                        "resource_id": resource_id,
+                        "start_time": race_start.isoformat(),
+                        "end_time": (race_start + timedelta(hours=1)).isoformat(),
+                        "purpose": f"{marker} {purpose}",
+                    },
+                )
+
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                futures = [
+                    executor.submit(simultaneous_request, self.student_headers, "race user A"),
+                    executor.submit(simultaneous_request, second_headers, "race user B"),
+                ]
+                responses = [future.result(timeout=30) for future in futures]
+            self.assertEqual(sorted(response.status_code for response in responses), [201, 409])
+            booking_ids.extend(response.json()["booking_id"] for response in responses if response.status_code == 201)
+
+            deactivated = client.put(
+                "/api/v1/resources/operating-hours/bulk",
+                headers=self.admin_headers,
+                json={
+                    "resource_ids": [resource_id],
+                    "weekdays": all_days,
+                    "closed_days": [],
+                    "open_time": "08:00",
+                    "close_time": "18:00",
+                    "is_active": False,
+                },
+            )
+            self.assertEqual(deactivated.status_code, 200, deactivated.text)
+            listed_schedule = client.get(
+                "/api/v1/resources/operating-hours",
+                headers=self.admin_headers,
+                params={"resource_id": resource_id},
+            )
+            self.assertEqual(listed_schedule.status_code, 200, listed_schedule.text)
+            self.assertTrue(listed_schedule.json())
+            self.assertTrue(all(not row["is_active"] for row in listed_schedule.json()))
+            after_deactivation = client.post(
+                "/api/v1/bookings",
+                headers=self.student_headers,
+                json={
+                    "resource_id": resource_id,
+                    "start_time": f"{race_date.isoformat()}T19:00:00",
+                    "end_time": f"{race_date.isoformat()}T20:00:00",
+                    "purpose": f"{marker} inactive schedule allows evening",
+                },
+            )
+            self.assertEqual(after_deactivation.status_code, 201, after_deactivation.text)
+            booking_ids.append(after_deactivation.json()["booking_id"])
+        finally:
+            conn = pool.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT booking_id FROM booking_resources WHERE resource_id = %s", (resource_id,))
+            all_booking_ids = [row[0] for row in cursor.fetchall()]
+            for booking_id in all_booking_ids:
+                cursor.execute("DELETE FROM notifications WHERE booking_id = %s", (booking_id,))
+                cursor.execute("DELETE FROM booking_participants WHERE booking_id = %s", (booking_id,))
+                cursor.execute("DELETE FROM booking_equipment_items WHERE booking_id = %s", (booking_id,))
+                cursor.execute("DELETE FROM booking_approvals WHERE booking_id = %s", (booking_id,))
+                cursor.execute("DELETE FROM booking_audit WHERE booking_id = %s", (booking_id,))
+                cursor.execute("DELETE FROM booking_resources WHERE booking_id = %s", (booking_id,))
+                cursor.execute("DELETE FROM bookings WHERE booking_id = %s", (booking_id,))
+            cursor.execute(
+                "DELETE FROM system_audit WHERE entity_type = 'ResourceOperatingHours' AND entity_id = %s",
+                (resource_id,),
+            )
+            cursor.execute(
+                "DELETE FROM system_audit WHERE entity_type = 'ResourceOperatingHoursException' AND entity_id IN "
+                "(SELECT exception_id FROM resource_operating_hour_exceptions WHERE resource_id = %s)",
+                (resource_id,),
+            )
+            cursor.execute("DELETE FROM resource_operating_hour_exceptions WHERE resource_id = %s", (resource_id,))
+            cursor.execute("DELETE FROM resource_operating_hours WHERE resource_id = %s", (resource_id,))
+            cursor.execute("DELETE FROM resource_features WHERE resource_id = %s", (resource_id,))
+            cursor.execute("DELETE FROM resources WHERE resource_id = %s", (resource_id,))
+            if second_user_id:
+                cursor.execute("DELETE FROM notifications WHERE user_id = %s", (second_user_id,))
+                cursor.execute("DELETE FROM users WHERE user_id = %s", (second_user_id,))
+            conn.commit()
+            cursor.close()
+            conn.close()
+
+    def test_maintenance_conflict_preview_confirmation_and_notification(self):
+        """Maintenance conflicts require explicit review and leave existing booking history intact."""
+        marker = f"maint-conflict-{int(datetime.now().timestamp() * 1000)}"
+        category = client.get("/api/v1/categories")
+        self.assertEqual(category.status_code, 200, category.text)
+        resource_response = client.post(
+            "/api/v1/resources",
+            headers=self.admin_headers,
+            json={
+                "category_id": category.json()[0]["category_id"],
+                "resource_name": f"{marker} Room",
+                "resource_code": f"MT-{marker[-10:]}",
+                "location": "Maintenance Test Block",
+                "capacity": 20,
+                "status": "Available",
+            },
+        )
+        self.assertEqual(resource_response.status_code, 201, resource_response.text)
+        resource_id = resource_response.json()["resource_id"]
+        target = datetime.now(ZoneInfo(settings.CAMPUS_TIMEZONE)).replace(tzinfo=None) + timedelta(days=8)
+        start = target.replace(hour=10, minute=0, second=0, microsecond=0)
+        end = start + timedelta(hours=2)
+        booking = client.post(
+            "/api/v1/bookings",
+            headers=self.student_headers,
+            json={
+                "resource_id": resource_id,
+                "start_time": start.isoformat(),
+                "end_time": (start + timedelta(hours=1)).isoformat(),
+                "purpose": f"{marker} approved booking",
+            },
+        )
+        self.assertEqual(booking.status_code, 201, booking.text)
+        booking_id = booking.json()["booking_id"]
+        maintenance_id = None
+        pool = get_connection_pool()
+        conn = pool.get_connection()
+        cursor = conn.cursor()
+
+        try:
+            maintenance_payload = {
+                "resource_id": resource_id,
+                "issue_description": f"{marker} scheduled projector inspection",
+                "maintenance_type": "Inspection",
+                "start_datetime": start.isoformat(),
+                "end_datetime": end.isoformat(),
+            }
+            preview = client.post(
+                "/api/v1/maintenance",
+                headers=self.admin_headers,
+                json=maintenance_payload,
+            )
+            self.assertEqual(preview.status_code, 409, preview.text)
+            self.assertTrue(preview.json()["detail"]["requires_confirmation"])
+            self.assertEqual(preview.json()["detail"]["conflict_count"], 1)
+            self.assertEqual(preview.json()["detail"]["conflicts"][0]["booking_id"], booking_id)
+            booking_after_preview = client.get(f"/api/v1/bookings/{booking_id}", headers=self.student_headers)
+            self.assertEqual(booking_after_preview.status_code, 200, booking_after_preview.text)
+            self.assertEqual(booking_after_preview.json()["status"], booking.json()["status"])
+
+            confirmed = client.post(
+                "/api/v1/maintenance",
+                headers=self.admin_headers,
+                json={**maintenance_payload, "confirm_booking_conflicts": True},
+            )
+            self.assertEqual(confirmed.status_code, 201, confirmed.text)
+            maintenance_id = confirmed.json()["maintenance_id"]
+            self.assertEqual(confirmed.json()["maintenance_type"], "Inspection")
+            self.assertEqual(confirmed.json()["status"], "Open")
+            booking_after_confirmation = client.get(
+                f"/api/v1/bookings/{booking_id}",
+                headers=self.student_headers,
+            )
+            self.assertEqual(booking_after_confirmation.status_code, 200, booking_after_confirmation.text)
+            self.assertEqual(booking_after_confirmation.json()["status"], booking.json()["status"])
+            resource_after_scheduling = client.get(f"/api/v1/resources/{resource_id}")
+            self.assertEqual(resource_after_scheduling.status_code, 200, resource_after_scheduling.text)
+            self.assertEqual(resource_after_scheduling.json()["status"], "Available")
+
+            conflicted_booking = client.post(
+                "/api/v1/bookings",
+                headers=self.student_headers,
+                json={
+                    "resource_id": resource_id,
+                    "start_time": (start + timedelta(minutes=15)).isoformat(),
+                    "end_time": (start + timedelta(minutes=45)).isoformat(),
+                    "purpose": f"{marker} blocked by inspection",
+                },
+            )
+            self.assertEqual(conflicted_booking.status_code, 409, conflicted_booking.text)
+            self.assertIn(f"{marker} scheduled projector inspection", conflicted_booking.json()["detail"])
+            self.assertIn("Reason category: Maintenance", conflicted_booking.json()["detail"])
+
+            student_notifications = client.get(
+                "/api/v1/notifications",
+                headers=self.student_headers,
+                params={"is_read": False},
+            )
+            self.assertEqual(student_notifications.status_code, 200, student_notifications.text)
+            self.assertTrue(any(
+                notification["booking_id"] == booking_id and "Maintenance (Inspection)" in notification["message"]
+                for notification in student_notifications.json()
+            ))
+        finally:
+            conn = pool.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM notifications WHERE booking_id = %s", (booking_id,))
+            cursor.execute("DELETE FROM booking_participants WHERE booking_id = %s", (booking_id,))
+            cursor.execute("DELETE FROM booking_equipment_items WHERE booking_id = %s", (booking_id,))
+            cursor.execute("DELETE FROM booking_approvals WHERE booking_id = %s", (booking_id,))
+            cursor.execute("DELETE FROM booking_audit WHERE booking_id = %s", (booking_id,))
+            cursor.execute("DELETE FROM booking_resources WHERE booking_id = %s", (booking_id,))
+            cursor.execute("DELETE FROM bookings WHERE booking_id = %s", (booking_id,))
+            if maintenance_id:
+                cursor.execute(
+                    "DELETE FROM resource_blackout_periods WHERE maintenance_id = %s",
+                    (maintenance_id,),
+                )
+                cursor.execute(
+                    "DELETE FROM system_audit WHERE entity_type = 'Maintenance' AND entity_id = %s",
+                    (maintenance_id,),
+                )
+                cursor.execute("DELETE FROM maintenance_records WHERE maintenance_id = %s", (maintenance_id,))
+            cursor.execute("DELETE FROM resource_features WHERE resource_id = %s", (resource_id,))
+            cursor.execute("DELETE FROM resources WHERE resource_id = %s", (resource_id,))
             conn.commit()
             cursor.close()
             conn.close()

@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 from fastapi import HTTPException, status
-from app.services.availability import check_resource_availability
+from app.services.availability import campus_datetime, campus_now_naive, check_resource_availability
 from app.services.equipment_availability import calculate_equipment_availability
 from app.services.audit_service import log_booking_audit
 from app.services.system_settings import get_booking_settings
@@ -77,15 +77,15 @@ def create_booking_transaction(
         )
 
     # 2. Determine and validate overall booking time window
-    now = datetime.now()
+    now = campus_now_naive()
     booking_settings = get_booking_settings(cursor)
     overall_start_dt: Optional[datetime] = None
     overall_end_dt: Optional[datetime] = None
 
     if resources_list:
         for item in resources_list:
-            start_dt = datetime.fromisoformat(item["start_time"].replace("Z", "+00:00")).replace(tzinfo=None)
-            end_dt = datetime.fromisoformat(item["end_time"].replace("Z", "+00:00")).replace(tzinfo=None)
+            start_dt = campus_datetime(datetime.fromisoformat(item["start_time"].replace("Z", "+00:00")))
+            end_dt = campus_datetime(datetime.fromisoformat(item["end_time"].replace("Z", "+00:00")))
 
             if start_dt.date() != end_dt.date():
                 raise HTTPException(
@@ -123,12 +123,12 @@ def create_booking_transaction(
                 detail="Equipment-only booking must specify start_time and end_time."
             )
         if isinstance(booking_start_time, str):
-            overall_start_dt = datetime.fromisoformat(booking_start_time.replace("Z", "+00:00")).replace(tzinfo=None)
+            overall_start_dt = campus_datetime(datetime.fromisoformat(booking_start_time.replace("Z", "+00:00")))
         else:
             overall_start_dt = booking_start_time
 
         if isinstance(booking_end_time, str):
-            overall_end_dt = datetime.fromisoformat(booking_end_time.replace("Z", "+00:00")).replace(tzinfo=None)
+            overall_end_dt = campus_datetime(datetime.fromisoformat(booking_end_time.replace("Z", "+00:00")))
         else:
             overall_end_dt = booking_end_time
 
@@ -220,11 +220,11 @@ def create_booking_transaction(
     # 5. Re-verify resource availability
     for item in resources_list:
         res_id = item["resource_id"]
-        start_dt = datetime.fromisoformat(item["start_time"].replace("Z", "+00:00")).replace(tzinfo=None)
-        end_dt = datetime.fromisoformat(item["end_time"].replace("Z", "+00:00")).replace(tzinfo=None)
+        start_dt = campus_datetime(datetime.fromisoformat(item["start_time"].replace("Z", "+00:00")))
+        end_dt = campus_datetime(datetime.fromisoformat(item["end_time"].replace("Z", "+00:00")))
 
         avail = check_resource_availability(
-            cursor, res_id, start_dt, end_dt, booking_settings=booking_settings
+            cursor, res_id, start_dt, end_dt, booking_settings=booking_settings, locking_read=True
         )
         if not avail["is_available"]:
             raise HTTPException(
@@ -238,12 +238,24 @@ def create_booking_transaction(
             cursor,
             item_id=eq_id,
             start_dt=overall_start_dt,
-            end_dt=overall_end_dt
+            end_dt=overall_end_dt,
+            locking_read=True
         )
         if not avail_info or not avail_info["is_active"]:
             raise HTTPException(
                 status_code=400,
                 detail=f"Equipment item ID {eq_id} is inactive or not found."
+            )
+        if avail_info.get("blackout"):
+            blackout = avail_info["blackout"]
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Equipment unavailable due to {blackout['reason_category']}: "
+                    f"{blackout['reason_explanation']} "
+                    f"({avail_info['item_name']} blocked from {blackout['start_datetime']:%Y-%m-%d %H:%M} "
+                    f"to {blackout['end_datetime']:%Y-%m-%d %H:%M})"
+                ),
             )
         if req_qty > avail_info["available_quantity"]:
             raise HTTPException(
@@ -291,8 +303,8 @@ def create_booking_transaction(
     # 9. Insert into booking_resources
     for item in resources_list:
         res_id = item["resource_id"]
-        start_dt = datetime.fromisoformat(item["start_time"].replace("Z", "+00:00")).replace(tzinfo=None)
-        end_dt = datetime.fromisoformat(item["end_time"].replace("Z", "+00:00")).replace(tzinfo=None)
+        start_dt = campus_datetime(datetime.fromisoformat(item["start_time"].replace("Z", "+00:00")))
+        end_dt = campus_datetime(datetime.fromisoformat(item["end_time"].replace("Z", "+00:00")))
 
         cursor.execute(
             """

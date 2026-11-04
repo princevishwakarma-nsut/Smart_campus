@@ -8,6 +8,7 @@ from app.schemas.booking import BookingResponse
 from app.schemas.approval import ApprovalAction, ApprovalResponse
 from app.api.v1.endpoints.bookings import format_booking_row
 from app.services.availability import check_resource_availability
+from app.services.equipment_availability import calculate_equipment_availability
 from app.services.booking_workflow import create_notification
 from app.services.audit_service import log_booking_audit
 
@@ -103,12 +104,39 @@ def approve_booking(
                 r["resource_id"],
                 r["start_time"],
                 r["end_time"],
-                exclude_booking_id=booking_id
+                exclude_booking_id=booking_id,
+                locking_read=True,
             )
             if not avail["is_available"]:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail=f"Resource ID {r['resource_id']} is no longer available: {avail['reason']}"
+                )
+
+        # Re-verify equipment availability and active equipment blackouts
+        cursor.execute(
+            """
+            SELECT bei.item_id, bei.requested_quantity, ei.item_name, b.start_time, b.end_time
+            FROM booking_equipment_items bei
+            JOIN bookings b ON b.booking_id = bei.booking_id
+            JOIN equipment_items ei ON ei.item_id = bei.item_id
+            WHERE bei.booking_id = %s
+            """,
+            (booking_id,)
+        )
+        for eq_row in cursor.fetchall():
+            avail_info = calculate_equipment_availability(
+                cursor,
+                item_id=eq_row["item_id"],
+                start_dt=eq_row["start_time"],
+                end_dt=eq_row["end_time"],
+                exclude_booking_id=booking_id
+            )
+            if avail_info and avail_info.get("blackout"):
+                bo = avail_info["blackout"]
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Equipment '{eq_row["item_name"]}' is unavailable due to {bo["reason_category"]}: {bo["reason_explanation"]}."
                 )
 
         # 2. Update booking and booking_resources status to 'Approved'

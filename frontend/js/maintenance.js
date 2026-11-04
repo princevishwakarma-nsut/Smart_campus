@@ -83,6 +83,15 @@ async function openAddMaintenanceModal() {
           <label for="mIssue">Issue Description *</label>
           <textarea id="mIssue" class="input" rows="3" placeholder="Describe the fault, repair or scheduled servicing..."></textarea>
 
+          <label for="mType">Maintenance Type *</label>
+          <select id="mType" class="input">
+            <option>Repair</option>
+            <option>Inspection</option>
+            <option>Damage</option>
+            <option>Scheduled Servicing</option>
+            <option>Other</option>
+          </select>
+
           <label for="mStart">Blackout Start (Optional)</label>
           <input id="mStart" class="input" type="datetime-local">
 
@@ -92,6 +101,7 @@ async function openAddMaintenanceModal() {
           <label for="mRemarks">Additional Remarks</label>
           <input id="mRemarks" class="input" placeholder="Notes for staff or vendor">
 
+          <div id="maintenanceConflictReview" class="maintenance-conflict-review hidden" aria-live="polite"></div>
           <div class="modal-foot">
             <button class="btn ghost" type="button" onclick="closeModal()">Cancel</button>
             <button class="btn bad" type="button" onclick="submitMaintenance()">Take Out of Service</button>
@@ -103,9 +113,10 @@ async function openAddMaintenanceModal() {
   $("modalRoot").innerHTML = modalHtml;
 }
 
-async function submitMaintenance() {
+async function submitMaintenance(confirmConflicts = false) {
   const resId = Number($("mRes").value);
   const issue = $("mIssue").value.trim();
+  const maintenanceType = $("mType").value;
   const start = $("mStart").value || null;
   const end = $("mEnd").value || null;
   const remarks = $("mRemarks").value.trim() || null;
@@ -119,16 +130,41 @@ async function submitMaintenance() {
     await api.post("/maintenance", {
       resource_id: resId,
       issue_description: issue,
+      maintenance_type: maintenanceType,
       start_datetime: start,
       end_datetime: end,
-      remarks: remarks
+      remarks: remarks,
+      confirm_booking_conflicts: confirmConflicts
     });
     closeModal();
-    toast("Resource marked under maintenance and blackout period set.", "ok");
+    toast(confirmConflicts
+      ? "Maintenance scheduled. Conflicting bookings were preserved and affected users notified."
+      : "Maintenance scheduled and blackout period set.", "ok");
     renderMaintenance();
   } catch (err) {
+    let detail = null;
+    try { detail = JSON.parse(err.message); } catch (_) {}
+    if (detail?.requires_confirmation && Array.isArray(detail.conflicts)) {
+      const review = $("maintenanceConflictReview");
+      review.classList.remove("hidden");
+      review.innerHTML = `
+        <b>${detail.conflict_count} existing booking conflict(s) on ${esc(detail.resource_name)}.</b>
+        <p>Review and explicitly confirm. Existing bookings will not be cancelled automatically.</p>
+        <div class="maintenance-conflict-list">${detail.conflicts.map(conflict => `
+          <article><b>BK-${conflict.booking_id} · ${esc(conflict.requester_name || "Requester")} · ${esc(conflict.status)}</b>
+            <span>${esc(formatDateTime(conflict.start_time))} – ${esc(formatDateTime(conflict.end_time))}</span>
+            <small>${esc(conflict.purpose || "")}</small></article>
+        `).join("")}</div>
+        <button class="btn bad sm" type="button" onclick="submitMaintenance(true)">Confirm maintenance and notify affected users</button>`;
+      return;
+    }
     toast("Failed to log maintenance: " + err.message, "err");
   }
+}
+
+function formatDateTime(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 }
 
 async function markMaintenanceResolved(maintId) {

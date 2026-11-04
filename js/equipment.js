@@ -15,64 +15,11 @@ function openEquipmentModal() {
   }
 }
 
-function openIssueEquipmentModal(itemId) {
-  const itemName = liveEquipmentInventory.find(item => item.item_id === itemId)?.item_name || "Equipment";
-  const root = $("modalRoot");
-  root.innerHTML = `
-    <div class="modal-backdrop" onclick="if(event.target===this)openEquipmentModal()">
-      <div class="modal card" style="max-width:440px;margin:auto;">
-        <h3>Issue Equipment: ${esc(itemName)}</h3>
-        <p class="sub">Record physical handover of item to the booking requester.</p>
-
-        <div class="field">
-          <label>Approved Booking ID *</label>
-          <input id="issueBookingId" class="input" type="number" placeholder="e.g. 101">
-          <span class="muted" style="font-size:12px;">Booking must be in 'Approved' state.</span>
-        </div>
-        <div class="field">
-          <label>Quantity *</label>
-          <input id="issueQuantity" class="input" type="number" min="1" value="1" required>
-        </div>
-        <div class="field">
-          <label>Notes</label>
-          <input id="issueNotes" class="input" maxlength="255" placeholder="Handover notes (optional)">
-        </div>
-
-        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:20px;">
-          <button class="btn ghost sm" type="button" onclick="openEquipmentModal()">Cancel</button>
-          <button class="btn primary sm" type="button" onclick="submitIssueEquipment(${itemId})">Confirm Issue</button>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-async function submitIssueEquipment(itemId) {
-  const bId = parseInt($("issueBookingId").value, 10);
-  const quantity = parseInt($("issueQuantity").value, 10);
-  if (!bId || !quantity || quantity < 1) {
-    toast("Enter a valid approved booking ID and issue quantity.", "err");
-    return;
-  }
-
-  try {
-    await api.post(`/equipment/${itemId}/issue`, {
-      booking_id: bId,
-      quantity,
-      notes: $("issueNotes").value.trim() || null
-    });
-    toast("Equipment issued successfully!", "ok");
-    openEquipmentModal();
-  } catch (err) {
-    toast(err.message || "Failed to issue equipment.", "err");
-  }
-}
-
 function openReturnEquipmentModal(itemId) {
   const itemName = liveEquipmentInventory.find(item => item.item_id === itemId)?.item_name || "Equipment";
   const root = $("modalRoot");
   root.innerHTML = `
-    <div class="modal-backdrop" onclick="if(event.target===this)openEquipmentModal()">
+    <div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
       <div class="modal card" style="max-width:460px;margin:auto;">
         <h3>Return Equipment: ${esc(itemName)}</h3>
         <p class="sub">Inspect condition and restore equipment to active inventory.</p>
@@ -109,7 +56,7 @@ function openReturnEquipmentModal(itemId) {
         </div>
 
         <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:20px;">
-          <button class="btn ghost sm" type="button" onclick="openEquipmentModal()">Cancel</button>
+          <button class="btn ghost sm" type="button" onclick="closeModal()">Cancel</button>
           <button class="btn primary sm" type="button" onclick="submitReturnEquipment(${itemId})">Record Return</button>
         </div>
       </div>
