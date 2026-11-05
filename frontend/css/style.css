@@ -252,6 +252,52 @@
   .slot .t{font-weight:600;font-size:13.5px}
   .slot .s{font-size:12px;color:var(--muted);margin-top:2px}
   @media(max-width:620px){.slot{grid-template-columns:1fr;gap:7px}.slot time{justify-self:start}}
+  /* Faculty dashboard, aligned with the shared indigo and slate application theme. */
+  .faculty-welcome{display:flex;justify-content:space-between;align-items:center;gap:24px;padding:clamp(22px,3.2vw,34px);margin-bottom:18px;border:1px solid #dfe5fb;border-radius:18px;background:radial-gradient(ellipse at 84% 15%,rgba(129,140,248,.16),transparent 40%),linear-gradient(120deg,#fff 4%,#f7f8ff 100%);box-shadow:var(--shadow)}
+  .faculty-eyebrow{display:block;color:#6366a5;font-size:10.5px;font-weight:750;letter-spacing:.105em;text-transform:uppercase}
+  .faculty-welcome h2{margin-top:9px;font-size:clamp(23px,3vw,31px);letter-spacing:-.035em;color:#17213c}
+  .faculty-welcome p{margin:7px 0 0;color:#64748b;font-size:13.5px}
+  .faculty-welcome-mark{width:55px;height:55px;flex:0 0 auto;display:grid;place-items:center;border:1px solid rgba(255,255,255,.82);border-radius:17px;background:linear-gradient(145deg,#4f46e5,#7c3aed);box-shadow:0 9px 22px rgba(79,70,229,.2);color:#fff;font-size:15px;font-weight:800;letter-spacing:-.03em}
+  .faculty-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:18px}
+  .faculty-stat{display:flex;align-items:center;gap:13px;min-width:0;padding:17px;border:1px solid var(--line);border-radius:14px;background:var(--panel);box-shadow:var(--shadow)}
+  .faculty-stat-icon,.faculty-shortcut-icon{width:39px;height:39px;flex:0 0 auto;display:grid;place-items:center;border-radius:12px;background:#eef2ff;color:#4f46e5;font-size:18px;font-weight:700}
+  .faculty-stat-icon-soft{background:#ecfdf5;color:#059669}.faculty-stat-icon-muted{background:#f1f5f9;color:#64748b}
+  .faculty-stat>div{display:grid;gap:4px;min-width:0}.faculty-stat>div>span{color:var(--muted);font-size:11.5px}.faculty-stat strong{overflow:hidden;color:var(--ink);font-size:17px;text-overflow:ellipsis;white-space:nowrap}
+  .faculty-bookings-panel{padding:19px!important}
+  .faculty-panel-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}
+  .faculty-panel-heading h3{margin-top:5px;color:var(--ink);font-size:16px}
+  .faculty-panel-heading .btn{white-space:nowrap}
+  .faculty-bookings-panel .schedule{gap:9px}
+  .faculty-bookings-panel .slot{min-height:65px;border-radius:11px;background:#fbfcff}
+  .faculty-bookings-panel .slot time{padding:7px 9px;border-radius:8px}
+  .faculty-shortcuts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:16px}
+  .faculty-shortcut{display:flex;align-items:center;gap:12px;width:100%;min-width:0;padding:14px;text-align:left;border:1px solid var(--line);border-radius:14px;background:var(--panel);box-shadow:var(--shadow);color:var(--ink);font:inherit;cursor:pointer;transition:transform .16s ease,border-color .16s ease,box-shadow .16s ease}
+  .faculty-shortcut:hover{transform:translateY(-2px);border-color:#c7d2fe;box-shadow:0 8px 22px rgba(79,70,229,.09)}
+  .faculty-shortcut-icon-alt{background:#f5f3ff;color:#7c3aed}.faculty-shortcut>span:nth-child(2){display:grid;gap:3px;min-width:0}.faculty-shortcut strong{font-size:12.5px}.faculty-shortcut small{overflow:hidden;color:var(--muted);font-size:11px;text-overflow:ellipsis;white-space:nowrap}.faculty-shortcut-arrow{margin-left:auto;color:#818cf8;font-size:17px}
+  @media(max-width:760px){.faculty-stats{grid-template-columns:1fr;gap:9px}.faculty-stat{padding:13px 15px}.faculty-shortcuts{grid-template-columns:1fr}}
+  @media(max-width:480px){.faculty-welcome{padding:20px}.faculty-welcome-mark{width:45px;height:45px;border-radius:14px}.faculty-panel-heading{align-items:flex-start}.faculty-panel-heading h3{font-size:14px}.faculty-panel-heading .btn{font-size:11px;padding:6px 8px}.faculty-bookings-panel{padding:15px!important}}
+  /* Admin overview uses the same cards and indigo accents as the faculty dashboard. */
+  .admin-welcome{display:flex;justify-content:space-between;align-items:center;gap:24px;padding:clamp(22px,3.2vw,34px);margin-bottom:17px;border:1px solid #dfe5fb;border-radius:18px;background:radial-gradient(ellipse at 84% 15%,rgba(129,140,248,.16),transparent 40%),linear-gradient(120deg,#fff 4%,#f7f8ff 100%);box-shadow:var(--shadow)}
+  .admin-eyebrow{display:block;color:#6366a5;font-size:10px;font-weight:750;letter-spacing:.105em;text-transform:uppercase}
+  .admin-welcome h2{margin-top:9px;color:#17213c;font-size:clamp(23px,3vw,30px);letter-spacing:-.035em}.admin-welcome p{margin:7px 0 0;color:var(--muted);font-size:13px}
+  .admin-welcome-mark{width:54px;height:54px;flex:0 0 auto;display:grid;place-items:center;border-radius:17px;background:linear-gradient(145deg,#4f46e5,#7c3aed);box-shadow:0 9px 22px rgba(79,70,229,.2);color:#fff;font-size:15px;font-weight:800}
+  .admin-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:12px}
+  .admin-kpi{display:flex;align-items:center;gap:12px;min-width:0;padding:15px 13px;border:1px solid var(--line);border-radius:14px;background:var(--panel);box-shadow:var(--shadow);color:var(--ink);font:inherit;text-align:left}
+  .admin-kpi-icon,.admin-insight-icon{width:37px;height:37px;flex:0 0 auto;display:grid;place-items:center;border-radius:11px;background:#eef2ff;color:#4f46e5;font-size:17px;font-weight:700}
+  .admin-kpi>div{display:grid;gap:3px;min-width:0}.admin-kpi>div>span,.admin-insight>div>span{color:var(--muted);font-size:11px}.admin-kpi strong{color:var(--ink);font-size:21px;line-height:1.15}.admin-kpi small{overflow:hidden;color:var(--muted);font-size:10px;text-overflow:ellipsis;white-space:nowrap}.admin-kpi small b{color:#6366f1}
+  .admin-kpi-icon-warn{background:#fffbeb;color:#d97706}.admin-kpi-icon-green{background:#ecfdf5;color:#059669}.admin-kpi-icon-purple{background:#f5f3ff;color:#7c3aed}
+  .admin-kpi-action{cursor:pointer;transition:transform .16s ease,border-color .16s ease,box-shadow .16s ease}.admin-kpi-action:hover{transform:translateY(-2px);border-color:#fcd34d;box-shadow:0 8px 22px rgba(217,119,6,.1)}
+  .admin-insights{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:17px}
+  .admin-insight{display:flex;align-items:center;gap:11px;min-width:0;padding:13px 15px;border:1px solid var(--line);border-radius:13px;background:rgba(255,255,255,.78)}
+  .admin-insight-icon{width:33px;height:33px;background:#f5f3ff;color:#7c3aed;font-size:15px}.admin-insight-icon-alert{background:#fff7ed;color:#ea580c}.admin-insight-icon-blue{background:#eff6ff;color:#2563eb}
+  .admin-insight>div{display:grid;gap:2px;min-width:0}.admin-insight strong{color:var(--ink);font-size:15px}.admin-insight strong small{color:var(--muted);font-size:10px;font-weight:500}.admin-insight p{overflow:hidden;margin:0;color:var(--muted);font-size:10px;text-overflow:ellipsis;white-space:nowrap}
+  .admin-overview-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(280px,.85fr);gap:14px;margin-bottom:14px;align-items:stretch}
+  .admin-content-panel{min-width:0;padding:18px!important}.admin-content-panel .admin-panel-heading{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:15px}.admin-panel-heading h3{margin-top:5px;color:var(--ink);font-size:15px}.admin-panel-heading .btn{white-space:nowrap}
+  .admin-content-panel .bars{display:grid;gap:13px;padding:4px 0}.admin-content-panel .barrow{grid-template-columns:minmax(85px,120px) 1fr 28px;gap:9px;font-size:11px}.admin-content-panel .bar{height:8px;border-radius:9px}.admin-content-panel .bar>i{border-radius:9px;background:linear-gradient(90deg,#6366f1,#a78bfa)}
+  .admin-activity-panel .schedule{gap:8px}.admin-content-panel .slot{min-height:58px;background:#fbfcff}
+  @media(max-width:1050px){.admin-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.admin-overview-grid{grid-template-columns:1fr 1fr}}
+  @media(max-width:680px){.admin-kpis{grid-template-columns:1fr 1fr;gap:8px}.admin-kpi{padding:12px 10px;gap:9px}.admin-kpi-icon{width:33px;height:33px}.admin-insights{grid-template-columns:1fr;gap:8px}.admin-overview-grid{grid-template-columns:1fr}.admin-content-panel{padding:15px!important}}
+  @media(max-width:420px){.admin-welcome{padding:19px}.admin-welcome-mark{width:45px;height:45px}.admin-kpis{grid-template-columns:1fr}.admin-panel-heading{align-items:flex-start}.admin-panel-heading h3{font-size:13px}.admin-panel-heading .btn{font-size:10.5px;padding:6px 8px}}
   .setting-row{display:flex;justify-content:space-between;align-items:center;gap:16px;
     padding:14px 0;border-bottom:1px solid #f1f5f9;flex-wrap:wrap}
   .setting-row:last-of-type{border-bottom:none}
@@ -986,3 +1032,11 @@ html.student-theme ::-webkit-scrollbar-thumb{border:3px solid transparent;border
 #introScreen .intro-tagline{font-size:17px !important}
 #introScreen .intro-loading{font-size:13px !important}
 @media(max-width:480px){#introScreen .intro-title{font-size:20px !important;letter-spacing:.16em !important}#introScreen .intro-tagline{font-size:16px !important}}
+
+/* The explicit .button-spinner element is the single login loading indicator. */
+#signInBtn.loading::after{content:none !important;display:none !important}
+
+/* Registration account type tabs need dark labels on their light track. */
+#loginScreen #registerFormArea .role-tab:not(.active){color:#211d22 !important}
+#loginScreen #registerFormArea .role-tab:not(.active):hover{color:#100f12 !important;background:rgba(203,120,110,.13) !important}
+#loginScreen #registerFormArea .role-tab.active{color:#fff !important}

@@ -986,3 +986,11 @@ html.student-theme ::-webkit-scrollbar-thumb{border:3px solid transparent;border
 #introScreen .intro-tagline{font-size:17px !important}
 #introScreen .intro-loading{font-size:13px !important}
 @media(max-width:480px){#introScreen .intro-title{font-size:20px !important;letter-spacing:.16em !important}#introScreen .intro-tagline{font-size:16px !important}}
+
+/* The explicit .button-spinner element is the single login loading indicator. */
+#signInBtn.loading::after{content:none !important;display:none !important}
+
+/* Registration account type tabs need dark labels on their light track. */
+#loginScreen #registerFormArea .role-tab:not(.active){color:#211d22 !important}
+#loginScreen #registerFormArea .role-tab:not(.active):hover{color:#100f12 !important;background:rgba(203,120,110,.13) !important}
+#loginScreen #registerFormArea .role-tab.active{color:#fff !important}

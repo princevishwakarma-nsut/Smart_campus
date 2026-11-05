@@ -40,8 +40,8 @@ async function renderAdminDash() {
         <div class="slot">
           <time>${fmtShort(ub.start_time)}</time>
           <div>
-            <div class="t">${esc(ub.resource_name)} — ${esc(ub.purpose)}</div>
-            <div class="s">Requester: ${esc(ub.user_name)} · <span class="pill ${ub.status==='Approved'?'ok':'warn'}">${esc(ub.status)}</span></div>
+            <div class="t">${esc(ub.resource_name)} - ${esc(ub.purpose)}</div>
+            <div class="s">Requester: ${esc(ub.user_name)} | <span class="pill ${ub.status==='Approved'?'ok':'warn'}">${esc(ub.status)}</span></div>
           </div>
         </div>
       `).join("");
@@ -64,62 +64,33 @@ async function renderAdminDash() {
       }).join("");
     }
 
+    const adminName = (getCurrentUser()?.name || "Administrator").trim().split(/\s+/)[0];
+    const todayLabel = new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric" }).format(new Date());
     const html = `
-      <div class="kpis">
-        <div class="kpi">
-          <div class="n">${stats.total_resources}</div>
-          <div class="l">Campus Spaces</div>
-        </div>
-        <div class="kpi">
-          <div class="n" style="color:var(--ok)">${stats.available_resources}</div>
-          <div class="l">Available Now</div>
-        </div>
-        <div class="kpi">
-          <div class="n" style="color:var(--warn)">${stats.pending_approvals}</div>
-          <div class="l">Pending Approvals</div>
-        </div>
-        <div class="kpi">
-          <div class="n" style="color:var(--primary)">${stats.approved_bookings}</div>
-          <div class="l">Approved in Range</div>
-        </div>
-        <div class="kpi">
-          <div class="n">${stats.total_bookings}</div>
-          <div class="l">Bookings in Range</div>
-        </div>
-        <div class="kpi">
-          <div class="n">${bookingsToday}</div>
-          <div class="l">Bookings Today</div>
-        </div>
-        <div class="kpi">
-          <div class="n">${equipmentTypes} <span class="muted" style="font-size:13px">/ ${equipmentUnits} units</span></div>
-          <div class="l">Active Equipment Inventory</div>
-        </div>
-        <div class="kpi">
-          <div class="n" style="color:var(--bad)">${maintenanceTickets}</div>
-          <div class="l">Open Maintenance Tickets</div>
-        </div>
-      </div>
-
-      <div class="split">
-        <div class="panel pad">
-          <h3>Upcoming Campus Sessions</h3>
-          <div class="schedule">${upcomingHtml}</div>
-        </div>
-
-        <div class="panel pad">
-          <h3>Resource Distribution by Category</h3>
-          <div class="bars">${catBarsHtml}</div>
-        </div>
-      </div>
-      <div class="panel pad">
-        <h3>Recent Booking Activity</h3>
+      <section class="admin-welcome"><div><span class="admin-eyebrow">CAMPUS OVERVIEW <span aria-hidden="true">|</span> ${esc(todayLabel)}</span>
+        <h2>Welcome back, ${esc(adminName)}</h2><p>Here is what is happening across your campus today.</p></div><div class="admin-welcome-mark" aria-hidden="true">SC</div></section>
+      <section class="admin-kpis" aria-label="Campus performance">
+        <article class="admin-kpi"><span class="admin-kpi-icon">R</span><div><span>Campus spaces</span><strong>${stats.total_resources}</strong><small>${stats.available_resources} available now</small></div></article>
+        <button type="button" class="admin-kpi admin-kpi-action" onclick="navigate('approvals')"><span class="admin-kpi-icon admin-kpi-icon-warn">!</span><div><span>Pending approvals</span><strong>${stats.pending_approvals}</strong><small>Review booking requests <b aria-hidden="true">&gt;</b></small></div></button>
+        <article class="admin-kpi"><span class="admin-kpi-icon admin-kpi-icon-green">OK</span><div><span>Approved bookings</span><strong>${stats.approved_bookings}</strong><small>In the selected period</small></div></article>
+        <article class="admin-kpi"><span class="admin-kpi-icon admin-kpi-icon-purple">B</span><div><span>Bookings today</span><strong>${bookingsToday}</strong><small>${stats.total_bookings} in the selected period</small></div></article>
+      </section>
+      <section class="admin-insights" aria-label="Inventory and maintenance">
+        <article class="admin-insight"><span class="admin-insight-icon">+</span><div><span>Equipment inventory</span><strong>${equipmentTypes} <small>types</small></strong><p>${equipmentUnits} units in inventory</p></div></article>
+        <article class="admin-insight"><span class="admin-insight-icon admin-insight-icon-alert">!</span><div><span>Open maintenance</span><strong>${maintenanceTickets}</strong><p>Tickets awaiting resolution</p></div></article>
+        <article class="admin-insight"><span class="admin-insight-icon admin-insight-icon-blue">^</span><div><span>Total bookings</span><strong>${stats.total_bookings}</strong><p>Across the selected period</p></div></article>
+      </section>
+      <section class="admin-overview-grid">
+        <article class="panel pad admin-content-panel"><div class="admin-panel-heading"><div><span class="admin-eyebrow">TODAY</span><h3>Upcoming campus sessions</h3></div><button type="button" class="btn ghost sm" onclick="navigate('allbookings')">All bookings <span aria-hidden="true">&gt;</span></button></div>
+          <div class="schedule">${upcomingHtml}</div></article>
+        <article class="panel pad admin-content-panel"><div class="admin-panel-heading"><div><span class="admin-eyebrow">CAMPUS SPACES</span><h3>Resources by category</h3></div></div>
+          <div class="bars">${catBarsHtml || `<div class="hint neutral">No resource categories to display.</div>`}</div></article>
+      </section>
+      <section class="panel pad admin-content-panel admin-activity-panel"><div class="admin-panel-heading"><div><span class="admin-eyebrow">LATEST UPDATES</span><h3>Recent booking activity</h3></div><button type="button" class="btn ghost sm" onclick="navigate('audit')">View audit trail <span aria-hidden="true">&gt;</span></button></div>
         <div class="schedule">${stats.recent_activity && stats.recent_activity.length ? stats.recent_activity.map(activity => `
-          <div class="slot">
-            <time>${fmtShort(activity.changed_at)}</time>
-            <div><div class="t">BK-${activity.booking_id} · ${esc(activity.action)}</div>
-              <div class="s">${esc(activity.purpose || "Booking")} · ${esc(activity.actor_name || "System")}${activity.remarks ? ` · ${esc(activity.remarks)}` : ""}</div></div>
-          </div>`).join("") : `<div class="hint neutral">No recent booking activity in this date range.</div>`}</div>
-      </div>
+          <div class="slot"><time>${fmtShort(activity.changed_at)}</time><div><div class="t">BK-${activity.booking_id} | ${esc(activity.action)}</div>
+            <div class="s">${esc(activity.purpose || "Booking")} | ${esc(activity.actor_name || "System")}${activity.remarks ? ` | ${esc(activity.remarks)}` : ""}</div></div></div>`).join("") : `<div class="hint neutral">No recent booking activity in this date range.</div>`}</div>
+      </section>
     `;
 
     host.innerHTML = html;
@@ -273,9 +244,9 @@ async function renderAudit(page = 1) {
             <td><span class="code">${esc(a.id)}</span></td>
             <td><span class="pill ${actionPill}">${esc(a.action)}</span></td>
             <td><b>${esc(a.changed_by)}</b> <span class="muted">(${esc(a.changed_by_role)})</span></td>
-            <td>${a.booking_id ? `<button class="link-btn" onclick="openBookingHistory(${a.raw_booking_id})">${esc(a.booking_id)}</button>` : '—'}</td>
+            <td>${a.booking_id ? `<button class="link-btn" onclick="openBookingHistory(${a.raw_booking_id})">${esc(a.booking_id)}</button>` : 'â€”'}</td>
             <td>${fmt(a.changed_at)}</td>
-            <td style="max-width:280px">${esc(a.remarks || '—')}</td>
+            <td style="max-width:280px">${esc(a.remarks || 'â€”')}</td>
           </tr>
         `;
       }
@@ -285,8 +256,8 @@ async function renderAudit(page = 1) {
       <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-top:1px solid var(--border,#e2e8f0); background:var(--bg-subtle,transparent);">
         <span class="muted" style="font-size:13px;">Showing page ${auditCurrentPage} (${pageItems.length} records)</span>
         <div style="display:flex; gap:8px;">
-          <button class="btn ghost sm" type="button" ${auditCurrentPage <= 1 ? 'disabled' : ''} onclick="renderAudit(${auditCurrentPage - 1})">← Previous</button>
-          <button class="btn ghost sm" type="button" ${!hasMore ? 'disabled' : ''} onclick="renderAudit(${auditCurrentPage + 1})">Next →</button>
+          <button class="btn ghost sm" type="button" ${auditCurrentPage <= 1 ? 'disabled' : ''} onclick="renderAudit(${auditCurrentPage - 1})">â† Previous</button>
+          <button class="btn ghost sm" type="button" ${!hasMore ? 'disabled' : ''} onclick="renderAudit(${auditCurrentPage + 1})">Next â†’</button>
         </div>
       </div>
     </div>`;
@@ -330,7 +301,7 @@ async function renderFacultyDash() {
             <time>${fmtShort(b.start_time || r.start_time)}</time>
             <div>
               <div class="t">${esc(b.purpose)}</div>
-              <div class="s">${esc(r.resource_name || 'Equipment only')} · <span class="pill ok">Approved</span></div>
+              <div class="s">${esc(r.resource_name || 'Equipment only')} Â· <span class="pill ok">Approved</span></div>
             </div>
           </div>
         `;
@@ -339,11 +310,28 @@ async function renderFacultyDash() {
       bkHtml = `<div class="hint neutral">No upcoming approved bookings.</div>`;
     }
 
+    const firstName = (getCurrentUser()?.name || "there").trim().split(/\s+/)[0];
+    const dateLabel = new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric" }).format(now);
     const html = `
-      <div class="panel pad">
-        <h3>Upcoming Approved Bookings</h3>
+      <section class="faculty-welcome">
+        <div class="faculty-welcome-copy"><span class="faculty-eyebrow">FACULTY WORKSPACE <span aria-hidden="true">Â·</span> ${esc(dateLabel)}</span>
+          <h2>Good day, ${esc(firstName)}</h2><p>Your campus bookings and schedule, all in one place.</p></div>
+        <div class="faculty-welcome-mark" aria-hidden="true">SC</div>
+      </section>
+      <section class="faculty-stats" aria-label="Booking summary">
+        <article class="faculty-stat"><span class="faculty-stat-icon" aria-hidden="true">â–¦</span><div><span>Upcoming bookings</span><strong>${upcoming.length}</strong></div></article>
+        <article class="faculty-stat"><span class="faculty-stat-icon faculty-stat-icon-soft" aria-hidden="true">âœ“</span><div><span>Approved and ready</span><strong>${upcoming.length ? "All set" : "No bookings"}</strong></div></article>
+        <article class="faculty-stat"><span class="faculty-stat-icon faculty-stat-icon-muted" aria-hidden="true">â—·</span><div><span>Next booking</span><strong>${upcoming.length ? esc(fmtShort(upcoming[0].start_time || upcoming[0].resources?.[0]?.start_time)) : "Whenever you need it"}</strong></div></article>
+      </section>
+      <section class="panel pad faculty-bookings-panel">
+        <div class="faculty-panel-heading"><div><span class="faculty-eyebrow">YOUR SCHEDULE</span><h3>Upcoming approved bookings</h3></div>
+          <button type="button" class="btn ghost sm" onclick="navigate('myschedule')">View schedule <span aria-hidden="true">â†’</span></button></div>
         <div class="schedule">${bkHtml}</div>
-      </div>
+      </section>
+      <section class="faculty-shortcuts" aria-label="Quick actions">
+        <button type="button" class="faculty-shortcut" onclick="navigate('catalog')"><span class="faculty-shortcut-icon">âŒ•</span><span><strong>Find a space</strong><small>Browse available campus resources</small></span><span class="faculty-shortcut-arrow">â†’</span></button>
+        <button type="button" class="faculty-shortcut" onclick="navigate('bookEquipment')"><span class="faculty-shortcut-icon faculty-shortcut-icon-alt">âœ³</span><span><strong>Book equipment</strong><small>Reserve the equipment you need</small></span><span class="faculty-shortcut-arrow">â†’</span></button>
+      </section>
     `;
     host.innerHTML = html;
   } catch (err) {
@@ -366,7 +354,7 @@ function formatScheduleDate(value) {
 
 function formatScheduleTime(value) {
   const match = String(value || "").match(/[T ](\d{2}:\d{2})/);
-  return match ? match[1] : "—";
+  return match ? match[1] : "â€”";
 }
 
 function formatScheduleWindow(start, end) {
@@ -378,7 +366,7 @@ function formatScheduleWindow(start, end) {
   const endLabel = endDate && startDate !== endDate
     ? `${formatScheduleDate(endDate)} ${formatScheduleTime(end)}`
     : formatScheduleTime(end);
-  return `${startLabel} – ${endLabel}`;
+  return `${startLabel} â€“ ${endLabel}`;
 }
 
 function renderScheduleBooking(booking, isToday) {
@@ -393,7 +381,7 @@ function renderScheduleBooking(booking, isToday) {
   `).join("");
   const equipment = (booking.equipment || []).map(item => `
     <div class="schedule-detail">
-      <strong>${esc(item.item_name || "Equipment")} × ${item.requested_quantity}</strong>
+      <strong>${esc(item.item_name || "Equipment")} Ã— ${item.requested_quantity}</strong>
       ${item.location ? `<span>${esc(item.location)}</span>` : ""}
     </div>
   `).join("");
@@ -491,11 +479,11 @@ async function renderSettings() {
         </form>
         <hr>
         <div class="setting-row">
-          <div><div class="lbl">Database</div><div class="desc">${esc(s.database_name)} · pool ${esc(s.database_pool)} (${s.database_pool_size})</div></div>
+          <div><div class="lbl">Database</div><div class="desc">${esc(s.database_name)} Â· pool ${esc(s.database_pool)} (${s.database_pool_size})</div></div>
           <span class="pill ok">Connected</span>
         </div>
         <div class="setting-row">
-          <div><div class="lbl">Authentication</div><div class="desc">JWT token validity: ${s.token_expire_minutes} minutes · ${esc(s.environment)}</div></div>
+          <div><div class="lbl">Authentication</div><div class="desc">JWT token validity: ${s.token_expire_minutes} minutes Â· ${esc(s.environment)}</div></div>
           <span class="pill neutral">Session secured</span>
         </div>
       </div>
