@@ -6,27 +6,52 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>Smart Campus — Space &amp; Resource Booking</title>
-<link rel="stylesheet" href="css/style.css?v=8">
+<title>Smart Campus — Space Resource Booking</title>
+<link rel="icon" type="image/svg+xml" href="assets/smart-campus-icon.svg?v=1">
+<link rel="stylesheet" href="css/style.css?v=28">
 </head>
 <body>
+
+<div id="introScreen" class="intro-screen" aria-label="Loading Smart Campus" role="status">
+  <div class="intro-orb intro-orb-one"></div>
+  <div class="intro-orb intro-orb-two"></div>
+  <div class="intro-content">
+    <div class="intro-logo">SC</div>
+    <h1 class="intro-title">SMART CAMPUS</h1>
+    <p class="intro-tagline">Your Campus, Connected.</p>
+    <div class="intro-loader" aria-hidden="true"><svg viewBox="0 0 48 48"><defs><linearGradient id="introRing" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#d98578"/><stop offset="1" stop-color="#e6bd91"/></linearGradient></defs><circle class="loader-track" cx="24" cy="24" r="19"></circle><circle class="loader-progress" cx="24" cy="24" r="19"></circle></svg><span></span></div>
+    <p class="intro-loading">Making campus management effortless...</p>
+  </div>
+</div>
 
 <div id="errBanner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:200;
   background:#b91c1c;color:#fff;padding:9px 14px;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace"></div>
 
-<div id="loginScreen" class="login-wrap">
+<div id="loginScreen" class="login-wrap auth-boot-pending">
+  <section class="login-story" aria-label="Smart Campus resources">
+    <div class="story-brand">SMART CAMPUS</div>
+    <h2>Manage Campus<br>Resources <span>Effortlessly</span></h2>
+    <p>Book spaces, labs, sports facilities and equipment — all in one place.</p>
+    <div class="story-categories" aria-label="Campus resource categories">
+      <div class="story-category"><span class="story-icon"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M4 26h24M7 26V10l9-5 9 5v16M12 26v-8h8v8M11 12h.1M21 12h.1"/><path d="M3 10h26"/></svg></span><span>Spaces</span></div>
+      <div class="story-category"><span class="story-icon"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M12 4h8M14 4v9L7 25a2 2 0 0 0 2 3h14a2 2 0 0 0 2-3l-7-12V4M11 21h10M14 17h4"/></svg></span><span>Labs</span></div>
+      <div class="story-category"><span class="story-icon"><svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="12"/><path d="M4 16h24M16 4c4 5 4 19 0 24M16 4c-4 5-4 19 0 24M8 8c4 3 12 3 16 0M8 24c4-3 12-3 16 0"/></svg></span><span>Sports</span></div>
+      <div class="story-category"><span class="story-icon"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="5" y="6" width="22" height="16" rx="2"/><path d="M3 27h26l-2-4H5l-2 4ZM12 26h8"/></svg></span><span>Equipment</span></div>
+    </div>
+  </section>
   <div class="login-card" id="loginCard">
-    <div class="logo">SC</div>
-    <h1>Smart Campus</h1>
-    <p class="sub">Space &amp; Resource Booking System — centralized discovery, conflict-free booking and approvals.</p>
+    <div class="auth-brand"><div class="logo">SC</div><span>SMART CAMPUS</span></div>
+    <div class="auth-heading"><h1 id="authHeading">Welcome Back</h1>
+    <p class="sub" id="authSubtitle">Log in to your account and seamlessly continue managing your campus resources.</p></div>
     <div id="loginFormArea">
-      <div class="field"><label for="loginEmail">Email</label>
-        <input id="loginEmail" class="input" type="email" placeholder="name@campus.edu" autocomplete="username"></div>
-      <div class="field"><label for="loginPass">Password</label>
-        <input id="loginPass" class="input" type="password" placeholder="••••••••" autocomplete="current-password"></div>
-      <button id="signInBtn" class="btn primary block" type="button" onclick="doLogin()">Sign in</button>
-      <div style="text-align:center;margin-top:16px">
-        <button type="button" class="link-btn" onclick="toggleAuthMode('register')">New user? Register here</button>
+      <div class="field auth-field"><label for="loginEmail">Email address</label>
+        <div class="auth-input-wrap"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5h16v11H4zM4.5 7l7.5 6 7.5-6"/></svg><input id="loginEmail" class="input" type="email" placeholder="Enter your email address" autocomplete="username"></div></div>
+      <div class="field auth-field"><label for="loginPass">Password</label>
+        <div class="auth-input-wrap"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg><input id="loginPass" class="input" type="password" placeholder="Enter your password" autocomplete="current-password"><button class="password-toggle" type="button" aria-label="Show password" aria-pressed="false" onclick="togglePasswordVisibility()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.3-6 9.5-6 9.5 6 9.5 6-3.3 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg></button></div></div>
+      <button id="signInBtn" class="btn primary block" type="button" onclick="doLogin()"><span class="button-label">Sign in to your account</span><span class="button-spinner" aria-hidden="true"></span><span class="button-arrow" aria-hidden="true">→</span></button>
+      <div class="auth-register-prompt">
+        <span>Don’t have an account?</span>
+        <button type="button" class="link-btn" onclick="toggleAuthMode('register')">Sign up</button>
       </div>
     </div>
 
@@ -92,6 +117,23 @@
 </div>
 
 <div id="app" class="app hidden">
+  <svg class="dashboard-botanical" viewBox="0 0 1680 960" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false">
+    <defs><linearGradient id="dashboardIvy" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#c9d8bd"/><stop offset="1" stop-color="#829873"/></linearGradient></defs>
+    <g class="dashboard-leaves branch-upper">
+      <path class="branch-stem" d="M1710 5c-105 74-177 136-237 248"/>
+      <path class="branch-stem fine" d="M1586 99c-37-2-65 10-86 35m39 24c-34 5-56 23-67 51m62-79c3-34-8-60-34-79m-58 177c-33-7-61 0-85 23"/>
+      <path class="branch-leaf" d="M1500 137c-4-24 8-44 29-54 10 22 5 44-15 58 24-3 43 7 51 28-23 8-46 0-57-21l-11 2Z"/>
+      <path class="branch-leaf pale" d="M1474 219c1-24 16-41 39-46 5 24-5 44-27 54 24 3 39 17 41 39-24 3-45-10-51-33l-12-1Z"/>
+      <path class="branch-leaf" d="M1535 78c12-21 35-30 57-22-6 24-22 39-46 41 21 11 31 31 23 53-23-6-38-25-36-49l-10-6Z"/>
+    </g>
+    <g class="dashboard-leaves branch-lower">
+      <path class="branch-stem" d="M-24 970c74-82 113-150 100-232S22 613 42 532"/>
+      <path class="branch-stem fine" d="M51 880c34-4 62 5 86 28m-71-96c32-9 54-27 69-54m-90-20c26-20 39-45 42-75"/>
+      <path class="branch-leaf" d="M138 914c2-25-11-45-34-53-8 24-1 45 21 57-25-2-43 9-49 31 24 6 46-3 55-25l11 1Z"/>
+      <path class="branch-leaf pale" d="M135 784c-4-24-21-39-45-41-3 24 8 43 31 51-24 5-38 21-37 44 24 0 43-14 47-37l12-2Z"/>
+      <path class="branch-leaf" d="M83 679c-12-20-35-27-57-18 7 23 24 37 48 37-21 12-29 32-20 53 22-7 35-27 31-50l10-7Z"/>
+    </g>
+  </svg>
   <aside class="sidebar">
     <div class="brand"><div class="mark">SC</div>
       <div><h2>Smart Campus</h2><span>Booking System</span></div></div>
@@ -137,6 +179,6 @@
 <script src="js/users.js?v=3"></script>
 <script src="js/timetable_admin.js?v=3"></script>
 <script src="js/reports.js?v=6"></script>
-<script src="js/app.js?v=3"></script>
+<script src="js/app.js?v=4"></script>
 </body>
 </html>

@@ -97,6 +97,18 @@ async function doLogin() {
   }
 }
 
+function togglePasswordVisibility() {
+  const input = $('loginPass');
+  const button = document.querySelector('.password-toggle');
+  if (!input || !button) return;
+  const reveal = input.type === 'password';
+  input.type = reveal ? 'text' : 'password';
+  button.setAttribute('aria-label', reveal ? 'Hide password' : 'Show password');
+  button.setAttribute('aria-pressed', String(reveal));
+  input.focus();
+}
+window.togglePasswordVisibility = togglePasswordVisibility;
+
 let currentAccountType = 'Student';
 
 function setAccountType(type) {
@@ -337,6 +349,8 @@ async function toggleAuthMode(mode) {
   if (!loginArea || !regArea) return;
 
   if (mode === 'register') {
+    if ($("authHeading")) $("authHeading").textContent = "Create Your Account";
+    if ($("authSubtitle")) $("authSubtitle").textContent = "Join your campus community and get connected to the spaces and resources you need.";
     loginArea.classList.add("hidden");
     regArea.classList.remove("hidden");
     setAccountType(currentAccountType || 'Student');
@@ -356,6 +370,8 @@ async function toggleAuthMode(mode) {
       }
     }
   } else {
+    if ($("authHeading")) $("authHeading").textContent = "Welcome Back";
+    if ($("authSubtitle")) $("authSubtitle").textContent = "Log in to your account and seamlessly continue managing your campus resources.";
     regArea.classList.add("hidden");
     loginArea.classList.remove("hidden");
   }
@@ -399,6 +415,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 function showLoginScreen() {
   document.documentElement.classList.remove("is-logged-in");
+  document.documentElement.classList.remove("student-theme");
   const appEl = $("app");
   if (appEl) appEl.classList.add("hidden");
   const loginEl = $("loginScreen");
@@ -418,6 +435,7 @@ function showAppScreen() {
   if (!user) return showLoginScreen();
 
   document.documentElement.classList.add("is-logged-in");
+  document.documentElement.classList.toggle("student-theme", user.role === "Student");
   $("loginScreen").classList.add("hidden");
   const appEl = $("app");
   appEl.classList.remove("hidden");

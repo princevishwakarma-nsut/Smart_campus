@@ -166,6 +166,17 @@ function render() {
 }
 
 window.addEventListener('DOMContentLoaded', async () => {
+  const intro = $('introScreen');
+  const finishIntro = () => {
+    $('loginScreen')?.classList.remove('auth-boot-pending');
+    $('loginScreen')?.classList.add('auth-ready');
+    if (intro) {
+      intro.classList.add('intro-leaving');
+      setTimeout(() => intro.remove(), 480);
+    }
+  };
+  window.setTimeout(finishIntro, window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 1200 : 4500);
+
   const token = api.getToken();
   const cachedUser = getCurrentUser();
   if (!token || !cachedUser) {
