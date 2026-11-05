@@ -71,7 +71,7 @@ async function renderAdminDash() {
         <h2>Welcome back, ${esc(adminName)}</h2><p>Here is what is happening across your campus today.</p></div><div class="admin-welcome-mark" aria-hidden="true">SC</div></section>
       <section class="admin-kpis" aria-label="Campus performance">
         <article class="admin-kpi"><span class="admin-kpi-icon">R</span><div><span>Campus spaces</span><strong>${stats.total_resources}</strong><small>${stats.available_resources} available now</small></div></article>
-        <button type="button" class="admin-kpi admin-kpi-action" onclick="navigate('approvals')"><span class="admin-kpi-icon admin-kpi-icon-warn">!</span><div><span>Pending approvals</span><strong>${stats.pending_approvals}</strong><small>Review booking requests <b aria-hidden="true">&gt;</b></small></div></button>
+        <button type="button" class="admin-kpi admin-kpi-action" onclick="go('approvals')"><span class="admin-kpi-icon admin-kpi-icon-warn">!</span><div><span>Pending approvals</span><strong>${stats.pending_approvals}</strong><small>Review booking requests <b aria-hidden="true">&gt;</b></small></div></button>
         <article class="admin-kpi"><span class="admin-kpi-icon admin-kpi-icon-green">OK</span><div><span>Approved bookings</span><strong>${stats.approved_bookings}</strong><small>In the selected period</small></div></article>
         <article class="admin-kpi"><span class="admin-kpi-icon admin-kpi-icon-purple">B</span><div><span>Bookings today</span><strong>${bookingsToday}</strong><small>${stats.total_bookings} in the selected period</small></div></article>
       </section>
@@ -81,12 +81,12 @@ async function renderAdminDash() {
         <article class="admin-insight"><span class="admin-insight-icon admin-insight-icon-blue">^</span><div><span>Total bookings</span><strong>${stats.total_bookings}</strong><p>Across the selected period</p></div></article>
       </section>
       <section class="admin-overview-grid">
-        <article class="panel pad admin-content-panel"><div class="admin-panel-heading"><div><span class="admin-eyebrow">TODAY</span><h3>Upcoming campus sessions</h3></div><button type="button" class="btn ghost sm" onclick="navigate('allbookings')">All bookings <span aria-hidden="true">&gt;</span></button></div>
+        <article class="panel pad admin-content-panel"><div class="admin-panel-heading"><div><span class="admin-eyebrow">TODAY</span><h3>Upcoming campus sessions</h3></div><button type="button" class="btn ghost sm" onclick="go('allbookings')">All bookings <span aria-hidden="true">&gt;</span></button></div>
           <div class="schedule">${upcomingHtml}</div></article>
         <article class="panel pad admin-content-panel"><div class="admin-panel-heading"><div><span class="admin-eyebrow">CAMPUS SPACES</span><h3>Resources by category</h3></div></div>
           <div class="bars">${catBarsHtml || `<div class="hint neutral">No resource categories to display.</div>`}</div></article>
       </section>
-      <section class="panel pad admin-content-panel admin-activity-panel"><div class="admin-panel-heading"><div><span class="admin-eyebrow">LATEST UPDATES</span><h3>Recent booking activity</h3></div><button type="button" class="btn ghost sm" onclick="navigate('audit')">View audit trail <span aria-hidden="true">&gt;</span></button></div>
+      <section class="panel pad admin-content-panel admin-activity-panel"><div class="admin-panel-heading"><div><span class="admin-eyebrow">LATEST UPDATES</span><h3>Recent booking activity</h3></div><button type="button" class="btn ghost sm" onclick="go('audit')">View audit trail <span aria-hidden="true">&gt;</span></button></div>
         <div class="schedule">${stats.recent_activity && stats.recent_activity.length ? stats.recent_activity.map(activity => `
           <div class="slot"><time>${fmtShort(activity.changed_at)}</time><div><div class="t">BK-${activity.booking_id} | ${esc(activity.action)}</div>
             <div class="s">${esc(activity.purpose || "Booking")} | ${esc(activity.actor_name || "System")}${activity.remarks ? ` | ${esc(activity.remarks)}` : ""}</div></div></div>`).join("") : `<div class="hint neutral">No recent booking activity in this date range.</div>`}</div>
@@ -325,12 +325,12 @@ async function renderFacultyDash() {
       </section>
       <section class="panel pad faculty-bookings-panel">
         <div class="faculty-panel-heading"><div><span class="faculty-eyebrow">YOUR SCHEDULE</span><h3>Upcoming approved bookings</h3></div>
-          <button type="button" class="btn ghost sm" onclick="navigate('myschedule')">View schedule <span aria-hidden="true">â†’</span></button></div>
+          <button type="button" class="btn ghost sm" onclick="go('myschedule')">View schedule <span aria-hidden="true">â†’</span></button></div>
         <div class="schedule">${bkHtml}</div>
       </section>
       <section class="faculty-shortcuts" aria-label="Quick actions">
-        <button type="button" class="faculty-shortcut" onclick="navigate('catalog')"><span class="faculty-shortcut-icon">âŒ•</span><span><strong>Find a space</strong><small>Browse available campus resources</small></span><span class="faculty-shortcut-arrow">â†’</span></button>
-        <button type="button" class="faculty-shortcut" onclick="navigate('bookEquipment')"><span class="faculty-shortcut-icon faculty-shortcut-icon-alt">âœ³</span><span><strong>Book equipment</strong><small>Reserve the equipment you need</small></span><span class="faculty-shortcut-arrow">â†’</span></button>
+        <button type="button" class="faculty-shortcut" onclick="go('catalog')"><span class="faculty-shortcut-icon">âŒ•</span><span><strong>Find a space</strong><small>Browse available campus resources</small></span><span class="faculty-shortcut-arrow">â†’</span></button>
+        <button type="button" class="faculty-shortcut" onclick="go('bookEquipment')"><span class="faculty-shortcut-icon faculty-shortcut-icon-alt">âœ³</span><span><strong>Book equipment</strong><small>Reserve the equipment you need</small></span><span class="faculty-shortcut-arrow">â†’</span></button>
       </section>
     `;
     host.innerHTML = html;

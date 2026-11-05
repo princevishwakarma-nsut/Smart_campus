@@ -435,7 +435,7 @@ function showAppScreen() {
   if (!user) return showLoginScreen();
 
   document.documentElement.classList.add("is-logged-in");
-  document.documentElement.classList.toggle("student-theme", user.role === "Student");
+  document.documentElement.classList.toggle("student-theme", user.role === "Student" || user.role === "Faculty");
   $("loginScreen").classList.add("hidden");
   const appEl = $("app");
   appEl.classList.remove("hidden");

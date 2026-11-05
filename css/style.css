@@ -252,6 +252,52 @@
   .slot .t{font-weight:600;font-size:13.5px}
   .slot .s{font-size:12px;color:var(--muted);margin-top:2px}
   @media(max-width:620px){.slot{grid-template-columns:1fr;gap:7px}.slot time{justify-self:start}}
+  /* Faculty dashboard, aligned with the shared indigo and slate application theme. */
+  .faculty-welcome{display:flex;justify-content:space-between;align-items:center;gap:24px;padding:clamp(22px,3.2vw,34px);margin-bottom:18px;border:1px solid #dfe5fb;border-radius:18px;background:radial-gradient(ellipse at 84% 15%,rgba(129,140,248,.16),transparent 40%),linear-gradient(120deg,#fff 4%,#f7f8ff 100%);box-shadow:var(--shadow)}
+  .faculty-eyebrow{display:block;color:#6366a5;font-size:10.5px;font-weight:750;letter-spacing:.105em;text-transform:uppercase}
+  .faculty-welcome h2{margin-top:9px;font-size:clamp(23px,3vw,31px);letter-spacing:-.035em;color:#17213c}
+  .faculty-welcome p{margin:7px 0 0;color:#64748b;font-size:13.5px}
+  .faculty-welcome-mark{width:55px;height:55px;flex:0 0 auto;display:grid;place-items:center;border:1px solid rgba(255,255,255,.82);border-radius:17px;background:linear-gradient(145deg,#4f46e5,#7c3aed);box-shadow:0 9px 22px rgba(79,70,229,.2);color:#fff;font-size:15px;font-weight:800;letter-spacing:-.03em}
+  .faculty-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:18px}
+  .faculty-stat{display:flex;align-items:center;gap:13px;min-width:0;padding:17px;border:1px solid var(--line);border-radius:14px;background:var(--panel);box-shadow:var(--shadow)}
+  .faculty-stat-icon,.faculty-shortcut-icon{width:39px;height:39px;flex:0 0 auto;display:grid;place-items:center;border-radius:12px;background:#eef2ff;color:#4f46e5;font-size:18px;font-weight:700}
+  .faculty-stat-icon-soft{background:#ecfdf5;color:#059669}.faculty-stat-icon-muted{background:#f1f5f9;color:#64748b}
+  .faculty-stat>div{display:grid;gap:4px;min-width:0}.faculty-stat>div>span{color:var(--muted);font-size:11.5px}.faculty-stat strong{overflow:hidden;color:var(--ink);font-size:17px;text-overflow:ellipsis;white-space:nowrap}
+  .faculty-bookings-panel{padding:19px!important}
+  .faculty-panel-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}
+  .faculty-panel-heading h3{margin-top:5px;color:var(--ink);font-size:16px}
+  .faculty-panel-heading .btn{white-space:nowrap}
+  .faculty-bookings-panel .schedule{gap:9px}
+  .faculty-bookings-panel .slot{min-height:65px;border-radius:11px;background:#fbfcff}
+  .faculty-bookings-panel .slot time{padding:7px 9px;border-radius:8px}
+  .faculty-shortcuts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:16px}
+  .faculty-shortcut{display:flex;align-items:center;gap:12px;width:100%;min-width:0;padding:14px;text-align:left;border:1px solid var(--line);border-radius:14px;background:var(--panel);box-shadow:var(--shadow);color:var(--ink);font:inherit;cursor:pointer;transition:transform .16s ease,border-color .16s ease,box-shadow .16s ease}
+  .faculty-shortcut:hover{transform:translateY(-2px);border-color:#c7d2fe;box-shadow:0 8px 22px rgba(79,70,229,.09)}
+  .faculty-shortcut-icon-alt{background:#f5f3ff;color:#7c3aed}.faculty-shortcut>span:nth-child(2){display:grid;gap:3px;min-width:0}.faculty-shortcut strong{font-size:12.5px}.faculty-shortcut small{overflow:hidden;color:var(--muted);font-size:11px;text-overflow:ellipsis;white-space:nowrap}.faculty-shortcut-arrow{margin-left:auto;color:#818cf8;font-size:17px}
+  @media(max-width:760px){.faculty-stats{grid-template-columns:1fr;gap:9px}.faculty-stat{padding:13px 15px}.faculty-shortcuts{grid-template-columns:1fr}}
+  @media(max-width:480px){.faculty-welcome{padding:20px}.faculty-welcome-mark{width:45px;height:45px;border-radius:14px}.faculty-panel-heading{align-items:flex-start}.faculty-panel-heading h3{font-size:14px}.faculty-panel-heading .btn{font-size:11px;padding:6px 8px}.faculty-bookings-panel{padding:15px!important}}
+  /* Admin overview uses the same cards and indigo accents as the faculty dashboard. */
+  .admin-welcome{display:flex;justify-content:space-between;align-items:center;gap:24px;padding:clamp(22px,3.2vw,34px);margin-bottom:17px;border:1px solid #dfe5fb;border-radius:18px;background:radial-gradient(ellipse at 84% 15%,rgba(129,140,248,.16),transparent 40%),linear-gradient(120deg,#fff 4%,#f7f8ff 100%);box-shadow:var(--shadow)}
+  .admin-eyebrow{display:block;color:#6366a5;font-size:10px;font-weight:750;letter-spacing:.105em;text-transform:uppercase}
+  .admin-welcome h2{margin-top:9px;color:#17213c;font-size:clamp(23px,3vw,30px);letter-spacing:-.035em}.admin-welcome p{margin:7px 0 0;color:var(--muted);font-size:13px}
+  .admin-welcome-mark{width:54px;height:54px;flex:0 0 auto;display:grid;place-items:center;border-radius:17px;background:linear-gradient(145deg,#4f46e5,#7c3aed);box-shadow:0 9px 22px rgba(79,70,229,.2);color:#fff;font-size:15px;font-weight:800}
+  .admin-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:12px}
+  .admin-kpi{display:flex;align-items:center;gap:12px;min-width:0;padding:15px 13px;border:1px solid var(--line);border-radius:14px;background:var(--panel);box-shadow:var(--shadow);color:var(--ink);font:inherit;text-align:left}
+  .admin-kpi-icon,.admin-insight-icon{width:37px;height:37px;flex:0 0 auto;display:grid;place-items:center;border-radius:11px;background:#eef2ff;color:#4f46e5;font-size:17px;font-weight:700}
+  .admin-kpi>div{display:grid;gap:3px;min-width:0}.admin-kpi>div>span,.admin-insight>div>span{color:var(--muted);font-size:11px}.admin-kpi strong{color:var(--ink);font-size:21px;line-height:1.15}.admin-kpi small{overflow:hidden;color:var(--muted);font-size:10px;text-overflow:ellipsis;white-space:nowrap}.admin-kpi small b{color:#6366f1}
+  .admin-kpi-icon-warn{background:#fffbeb;color:#d97706}.admin-kpi-icon-green{background:#ecfdf5;color:#059669}.admin-kpi-icon-purple{background:#f5f3ff;color:#7c3aed}
+  .admin-kpi-action{cursor:pointer;transition:transform .16s ease,border-color .16s ease,box-shadow .16s ease}.admin-kpi-action:hover{transform:translateY(-2px);border-color:#fcd34d;box-shadow:0 8px 22px rgba(217,119,6,.1)}
+  .admin-insights{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:17px}
+  .admin-insight{display:flex;align-items:center;gap:11px;min-width:0;padding:13px 15px;border:1px solid var(--line);border-radius:13px;background:rgba(255,255,255,.78)}
+  .admin-insight-icon{width:33px;height:33px;background:#f5f3ff;color:#7c3aed;font-size:15px}.admin-insight-icon-alert{background:#fff7ed;color:#ea580c}.admin-insight-icon-blue{background:#eff6ff;color:#2563eb}
+  .admin-insight>div{display:grid;gap:2px;min-width:0}.admin-insight strong{color:var(--ink);font-size:15px}.admin-insight strong small{color:var(--muted);font-size:10px;font-weight:500}.admin-insight p{overflow:hidden;margin:0;color:var(--muted);font-size:10px;text-overflow:ellipsis;white-space:nowrap}
+  .admin-overview-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(280px,.85fr);gap:14px;margin-bottom:14px;align-items:stretch}
+  .admin-content-panel{min-width:0;padding:18px!important}.admin-content-panel .admin-panel-heading{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:15px}.admin-panel-heading h3{margin-top:5px;color:var(--ink);font-size:15px}.admin-panel-heading .btn{white-space:nowrap}
+  .admin-content-panel .bars{display:grid;gap:13px;padding:4px 0}.admin-content-panel .barrow{grid-template-columns:minmax(85px,120px) 1fr 28px;gap:9px;font-size:11px}.admin-content-panel .bar{height:8px;border-radius:9px}.admin-content-panel .bar>i{border-radius:9px;background:linear-gradient(90deg,#6366f1,#a78bfa)}
+  .admin-activity-panel .schedule{gap:8px}.admin-content-panel .slot{min-height:58px;background:#fbfcff}
+  @media(max-width:1050px){.admin-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.admin-overview-grid{grid-template-columns:1fr 1fr}}
+  @media(max-width:680px){.admin-kpis{grid-template-columns:1fr 1fr;gap:8px}.admin-kpi{padding:12px 10px;gap:9px}.admin-kpi-icon{width:33px;height:33px}.admin-insights{grid-template-columns:1fr;gap:8px}.admin-overview-grid{grid-template-columns:1fr}.admin-content-panel{padding:15px!important}}
+  @media(max-width:420px){.admin-welcome{padding:19px}.admin-welcome-mark{width:45px;height:45px}.admin-kpis{grid-template-columns:1fr}.admin-panel-heading{align-items:flex-start}.admin-panel-heading h3{font-size:13px}.admin-panel-heading .btn{font-size:10.5px;padding:6px 8px}}
   .setting-row{display:flex;justify-content:space-between;align-items:center;gap:16px;
     padding:14px 0;border-bottom:1px solid #f1f5f9;flex-wrap:wrap}
   .setting-row:last-of-type{border-bottom:none}
@@ -839,6 +885,20 @@ html.student-theme ::-webkit-scrollbar-thumb{border:3px solid transparent;border
 @media(max-width:820px){html.student-theme .sidebar{background:rgba(255,250,244,.94);border-top:1px solid rgba(151,112,100,.17);border-right:0;box-shadow:0 -10px 30px rgba(105,72,64,.1);backdrop-filter:blur(18px)}html.student-theme nav button{justify-content:center;min-height:46px;border-radius:12px;flex:1 0 auto}html.student-theme .userbox{display:flex;align-items:center;flex:0 0 auto;margin:0;padding:0;border:0}html.student-theme .userbox .nm,html.student-theme .userbox .rl{display:none}html.student-theme .userbox button{width:auto;padding:9px 11px;white-space:nowrap}html.student-theme .topbar{padding-top:18px}}
 @media(max-width:620px){html.student-theme #view>.filters{display:grid;grid-template-columns:1fr 1fr;padding:11px;gap:8px}html.student-theme .filters #fq{grid-column:1/-1;min-width:0}html.student-theme .filters .input{width:100%;min-width:0}html.student-theme .filters button{grid-column:1/-1}html.student-theme #view>.grid{grid-template-columns:1fr;gap:12px}html.student-theme #view .card{min-height:220px;padding:16px}html.student-theme .topbar{gap:10px}html.student-theme .topbar h1{font-size:25px}html.student-theme #app>.dashboard-botanical{opacity:.45}}
 @media(prefers-reduced-motion:reduce){html.student-theme *,html.student-theme *::before,html.student-theme *::after{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important;animation-iteration-count:1!important}}
+
+/* Carry the warm botanical login palette through the faculty dashboard. */
+html.student-theme .faculty-welcome{border-color:rgba(151,112,100,.18);background:radial-gradient(ellipse at 88% 12%,rgba(217,200,232,.38),transparent 38%),radial-gradient(ellipse at 8% 100%,rgba(245,198,165,.34),transparent 48%),linear-gradient(125deg,rgba(255,250,244,.97),rgba(255,243,231,.9));box-shadow:0 14px 38px rgba(105,72,64,.09),inset 0 1px rgba(255,255,255,.9)}
+html.student-theme .faculty-eyebrow{color:#a96e65}
+html.student-theme .faculty-welcome h2{color:#59433f;font-family:"Iowan Old Style","Palatino Linotype","Book Antiqua",Georgia,serif;font-weight:600}
+html.student-theme .faculty-welcome p{color:#806e68}
+html.student-theme .faculty-welcome-mark{border-color:rgba(255,255,255,.65);background:linear-gradient(145deg,#e28c7f,#cb786e 58%,#d98591);box-shadow:0 7px 18px rgba(203,120,110,.2)}
+html.student-theme .faculty-stat,html.student-theme .faculty-shortcut{border-color:rgba(151,112,100,.16);background:rgba(255,250,244,.83);box-shadow:0 10px 28px rgba(105,72,64,.07),inset 0 1px rgba(255,255,255,.85);color:#59433f;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+html.student-theme .faculty-stat-icon,html.student-theme .faculty-shortcut-icon{background:rgba(233,154,145,.2);color:#a85f56}
+html.student-theme .faculty-stat-icon-soft{background:rgba(201,216,189,.46);color:#526c4d}
+html.student-theme .faculty-stat-icon-muted,html.student-theme .faculty-shortcut-icon-alt{background:rgba(217,200,232,.38);color:#695575}
+html.student-theme .faculty-stat strong,html.student-theme .faculty-shortcut strong{color:#59433f}
+html.student-theme .faculty-shortcut:hover{transform:translateY(-2px);border-color:rgba(203,120,110,.35);box-shadow:0 12px 28px rgba(105,72,64,.1),0 0 20px rgba(233,154,145,.08)}
+html.student-theme .faculty-shortcut small,html.student-theme .faculty-shortcut-arrow{color:#806e68}
 
 /* Cinematic login composition: use the supplied NSUT campus photograph. */
 #introScreen{background-image:linear-gradient(112deg,rgba(42,37,43,.28),rgba(78,48,53,.08) 55%,rgba(236,158,126,.12)),url("../assets/campus-background.png");background-size:cover;background-position:center;background-repeat:no-repeat;animation:none}
