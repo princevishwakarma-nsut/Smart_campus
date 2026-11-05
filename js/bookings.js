@@ -361,7 +361,7 @@ async function renderBookingPage(kind) {
         <td>${esc(booking.purpose)}</td><td><span class="pill ${statusClass}">${esc(booking.status)}</span></td>
         <td><div class="actions">
           <button class="btn ghost sm" type="button" onclick="openBookingHistory(${booking.booking_id})">Trail</button>
-          ${booking.status === "Pending" ? `<button class="btn ok sm" type="button" onclick="quickApprove(${booking.booking_id})">Approve</button><button class="btn bad sm" type="button" onclick="quickReject(${booking.booking_id})">Reject</button>` : ""}
+          ${booking.status === "Pending" ? `<button class="btn ok sm" type="button" onclick="quickApprove(${booking.booking_id})">Approve</button><button class="btn bad sm" type="button" onclick="openRejectModal(${booking.booking_id})">Reject</button>` : ""}
           ${booking.status === "Approved" ? `<button class="btn bad sm" type="button" onclick="openCancelModal(${booking.booking_id})">Cancel</button>` : ""}
         </div></td>
       </tr>`;
