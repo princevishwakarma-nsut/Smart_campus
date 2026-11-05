@@ -5,11 +5,17 @@
 window.onerror = function (msg, src, line) {
   const box = document.getElementById('errBanner');
   if (box) {
-    box.style.display = 'block';
-    box.textContent = 'Script error: ' + msg + ' (line ' + line + ')';
+    box.style.display = 'flex';
+    const message = document.getElementById('errMessage');
+    if (message) message.textContent = 'Script error: ' + msg + (line ? ' (line ' + line + ')' : '');
   }
   return false;
 };
+
+function dismissErrorBanner() {
+  const box = document.getElementById('errBanner');
+  if (box) box.style.display = 'none';
+}
 
 function $(id) {
   return document.getElementById(id);

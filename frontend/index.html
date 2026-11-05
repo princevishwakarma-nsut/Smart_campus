@@ -8,7 +8,7 @@
 <meta http-equiv="Expires" content="0">
 <title>Smart Campus — Space Resource Booking</title>
 <link rel="icon" type="image/svg+xml" href="assets/smart-campus-icon.svg?v=1">
-<link rel="stylesheet" href="css/style.css?v=34">
+<link rel="stylesheet" href="css/style.css?v=35">
 </head>
 <body>
 
@@ -24,8 +24,8 @@
   </div>
 </div>
 
-<div id="errBanner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:200;
-  background:#b91c1c;color:#fff;padding:9px 14px;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace"></div>
+<div id="errBanner" role="alert" aria-live="assertive" style="display:none;position:fixed;top:0;left:0;right:0;z-index:200;align-items:center;justify-content:space-between;gap:16px;
+  background:#b91c1c;color:#fff;padding:9px 14px;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace"><span id="errMessage"></span><button type="button" class="error-banner-close" onclick="dismissErrorBanner()" aria-label="Dismiss error message">Dismiss ×</button></div>
 
 <div id="loginScreen" class="login-wrap auth-boot-pending">
   <section class="login-story" aria-label="Smart Campus resources">
@@ -179,6 +179,6 @@
 <script src="js/users.js?v=3"></script>
 <script src="js/timetable_admin.js?v=3"></script>
 <script src="js/reports.js?v=7"></script>
-<script src="js/app.js?v=4"></script>
+<script src="js/app.js?v=5"></script>
 </body>
 </html>

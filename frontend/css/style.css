@@ -928,6 +928,9 @@ html.student-theme .faculty-stat,html.student-theme .faculty-shortcut,html.stude
 html.student-theme .faculty-bookings-panel .slot,html.student-theme .admin-content-panel .slot{border-color:rgba(255,255,255,.72);background:rgba(255,250,244,.56);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
 html.student-theme .faculty-shortcut:hover,html.student-theme .admin-kpi-action:hover{background:rgba(255,250,244,.8)}
 @media(max-width:820px){html.student-theme .sidebar{background:rgba(255,250,244,.78);border-color:rgba(255,255,255,.72);box-shadow:0 -12px 34px rgba(105,72,64,.12);backdrop-filter:blur(24px) saturate(1.2);-webkit-backdrop-filter:blur(24px) saturate(1.2)}}
+#errBanner .error-banner-close{flex:0 0 auto;border:1px solid rgba(255,255,255,.45);border-radius:7px;padding:5px 9px;background:rgba(255,255,255,.12);color:#fff;font-family:inherit;font-size:11px;font-weight:600;line-height:1.2;cursor:pointer}
+#errBanner .error-banner-close:hover{background:rgba(255,255,255,.22)}
+#errBanner .error-banner-close:focus-visible{outline:2px solid #fff;outline-offset:2px}
 
 /* Cinematic login composition: use the supplied NSUT campus photograph. */
 #introScreen{background-image:linear-gradient(112deg,rgba(42,37,43,.28),rgba(78,48,53,.08) 55%,rgba(236,158,126,.12)),url("../assets/campus-background.png");background-size:cover;background-position:center;background-repeat:no-repeat;animation:none}
