@@ -9,10 +9,10 @@ A full-stack, enterprise campus resource booking platform with conflict-free aca
 ```text
 Smart-Campus/
 │
-├── frontend/                     # Pure Vanilla JS Frontend (Strict Design Preserved)
+├── frontend/                     # Vanilla JS single-page application
 │   ├── index.html                # SPA Shell
 │   ├── css/
-│   │   └── style.css             # Unified CSS Design System (Custom variables, responsive layout)
+│   │   └── style.css             # Responsive design system and role-based dashboard themes
 │   └── js/
 │       ├── config.js             # API base URL & token storage keys
 │       ├── api.js                # Centralized Fetch client with JWT authorization
@@ -74,6 +74,12 @@ Smart-Campus/
 │
 └── .gitignore
 ```
+
+The repository also includes a root-level `index.html`, `css/`, and `js/` copy for hosts that publish the repository root. Keep the root and `frontend/` copies in sync when changing frontend code. The active copy is the one in the static host's configured publish directory.
+
+### Dashboard design
+
+Student, faculty, and admin dashboards share the warm botanical palette and glass surfaces: translucent blurred sidebars, frosted cards, and coral, sage, and lavender accents. The admin overview adds campus metrics, inventory and maintenance summaries, upcoming sessions, resource distribution, and recent activity. Faculty see upcoming approved bookings and quick links to resources and equipment.
 
 ---
 
@@ -145,13 +151,15 @@ python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 * **Health Check**: [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
 
 ### B. Run Frontend
-Open `frontend/index.html` (or root `index.html`) using VS Code Live Server (or any static HTTP server on port 5500 or 8080):
+Serve either the root directory or the `frontend/` directory with VS Code Live Server or a static HTTP server. For example, to serve the frontend copy:
 ```bash
 # Example with python http.server:
 cd frontend
 python -m http.server 5500
 ```
 Open `http://localhost:5500` in your web browser.
+
+When deploying, configure the static host to publish the directory containing the intended `index.html`. After frontend changes, push the updated files from that directory and wait for the static-site deploy to complete. Asset version numbers in the HTML are bumped when needed to refresh browser caches.
 
 ---
 
