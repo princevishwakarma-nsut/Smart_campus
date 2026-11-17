@@ -39,17 +39,14 @@ async function openBookingModal(resourceId) {
   const defaultStart = `${defaultDate}T10:00`;
   const defaultEnd = `${defaultDate}T12:00`;
 
-  // Fetch available equipment, societies, and users
-  let equipmentList = [];
+  // Fetch societies and users
   let societiesList = [];
   let usersList = [];
   try {
-    const [eq, soc, us] = await Promise.all([
-      api.get("/equipment", { availability_status: "Available" }).catch(() => []),
+    const [soc, us] = await Promise.all([
       api.get("/societies").catch(() => []),
       api.get("/users").catch(() => [])
     ]);
-    equipmentList = eq || [];
     societiesList = soc || [];
     usersList = us || [];
   } catch (e) {}
@@ -96,11 +93,6 @@ async function openBookingModal(resourceId) {
             </div>
           ` : ""}
 
-          <div class="field">
-            <label for="bmParts">Expected Participants</label>
-            <input id="bmParts" class="input" type="number" min="1" value="1" placeholder="Number of attendees">
-          </div>
-
           ${usersList.length ? `
             <div class="field">
               <label for="bmParticipants">Add Registered Participants (Optional)</label>
@@ -108,16 +100,6 @@ async function openBookingModal(resourceId) {
                 ${usersList.map(u => `<option value="${u.user_id}">${esc(u.full_name)} (${esc(u.email)})</option>`).join("")}
               </select>
               <span class="muted" style="font-size:11px;">Hold Ctrl / Cmd to select attendees for check-in attendance.</span>
-            </div>
-          ` : ""}
-
-          ${equipmentList.length ? `
-            <div class="field">
-              <label for="bmEquip">Request Equipment (Optional)</label>
-              <select id="bmEquip" class="input" multiple size="3">
-                ${equipmentList.map(eq => `<option value="${eq.item_id}">${esc(eq.item_name)} (${esc(eq.condition_status)})</option>`).join("")}
-              </select>
-              <span class="muted" style="font-size:11px;">Reserved for this session; marked Issued only upon physical handover.</span>
             </div>
           ` : ""}
 
@@ -195,7 +177,6 @@ async function submitBooking(resourceId) {
   const startVal = $("bmStart").value;
   const endVal = $("bmEnd").value;
   const purpose = $("bmPurpose").value.trim();
-  const parts = parseInt($("bmParts").value, 10) || 1;
 
   if (!purpose) {
     toast("Please enter the purpose of the booking.", "err");
@@ -206,12 +187,6 @@ async function submitBooking(resourceId) {
   if (startVal.split("T")[0] !== endVal.split("T")[0]) {
     toast("Bookings crossing midnight are prohibited.", "err");
     return;
-  }
-
-  const equipSelect = $("bmEquip");
-  let equipIds = [];
-  if (equipSelect) {
-    equipIds = Array.from(equipSelect.selectedOptions).map(opt => Number(opt.value));
   }
 
   const socEl = $("bmSociety");
@@ -231,10 +206,9 @@ async function submitBooking(resourceId) {
     start_time: startVal,
     end_time: endVal,
     purpose: purpose,
-    expected_participants: parts,
+    expected_participants: 1,
     society_id: societyId,
-    participants: participants.length ? participants : null,
-    equipment_ids: equipIds.length ? equipIds : null
+    participants: participants.length ? participants : null
   };
 
   const btn = $("bmSubmitBtn");

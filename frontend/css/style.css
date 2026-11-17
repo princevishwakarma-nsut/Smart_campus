@@ -261,6 +261,7 @@
   .faculty-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:18px}
   .faculty-stat{display:flex;align-items:center;gap:13px;min-width:0;padding:17px;border:1px solid var(--line);border-radius:14px;background:var(--panel);box-shadow:var(--shadow)}
   .faculty-stat-icon,.faculty-shortcut-icon{width:39px;height:39px;flex:0 0 auto;display:grid;place-items:center;border-radius:12px;background:#eef2ff;color:#4f46e5;font-size:18px;font-weight:700}
+  .faculty-stat-icon svg,.faculty-shortcut-icon svg{width:20px;height:20px;display:block}
   .faculty-stat-icon-soft{background:#ecfdf5;color:#059669}.faculty-stat-icon-muted{background:#f1f5f9;color:#64748b}
   .faculty-stat>div{display:grid;gap:4px;min-width:0}.faculty-stat>div>span{color:var(--muted);font-size:11.5px}.faculty-stat strong{overflow:hidden;color:var(--ink);font-size:17px;text-overflow:ellipsis;white-space:nowrap}
   .faculty-bookings-panel{padding:19px!important}

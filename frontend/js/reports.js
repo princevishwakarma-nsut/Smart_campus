@@ -319,18 +319,18 @@ async function renderFacultyDash() {
         <div class="faculty-welcome-mark" aria-hidden="true">SC</div>
       </section>
       <section class="faculty-stats" aria-label="Booking summary">
-        <article class="faculty-stat"><span class="faculty-stat-icon" aria-hidden="true">â–¦</span><div><span>Upcoming bookings</span><strong>${upcoming.length}</strong></div></article>
-        <article class="faculty-stat"><span class="faculty-stat-icon faculty-stat-icon-soft" aria-hidden="true">âœ“</span><div><span>Approved and ready</span><strong>${upcoming.length ? "All set" : "No bookings"}</strong></div></article>
-        <article class="faculty-stat"><span class="faculty-stat-icon faculty-stat-icon-muted" aria-hidden="true">â—·</span><div><span>Next booking</span><strong>${upcoming.length ? esc(fmtShort(upcoming[0].start_time || upcoming[0].resources?.[0]?.start_time)) : "Whenever you need it"}</strong></div></article>
+        <article class="faculty-stat"><span class="faculty-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="16" rx="2.5"/><path d="M7.5 3v4M16.5 3v4M3.5 9.5h17M8 13h3m-3 4h3m3-4h3"/></svg></span><div><span>Upcoming bookings</span><strong>${upcoming.length}</strong></div></article>
+        <article class="faculty-stat"><span class="faculty-stat-icon faculty-stat-icon-soft" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16.5 9"/></svg></span><div><span>Approved and ready</span><strong>${upcoming.length ? "All set" : "No bookings"}</strong></div></article>
+        <article class="faculty-stat"><span class="faculty-stat-icon faculty-stat-icon-muted" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg></span><div><span>Next booking</span><strong>${upcoming.length ? esc(fmtShort(upcoming[0].start_time || upcoming[0].resources?.[0]?.start_time)) : "Whenever you need it"}</strong></div></article>
       </section>
       <section class="panel pad faculty-bookings-panel">
         <div class="faculty-panel-heading"><div><span class="faculty-eyebrow">YOUR SCHEDULE</span><h3>Upcoming approved bookings</h3></div>
-          <button type="button" class="btn ghost sm" onclick="go('myschedule')">View schedule <span aria-hidden="true">â†’</span></button></div>
+          <button type="button" class="btn ghost sm" onclick="go('myschedule')">View schedule <span aria-hidden="true">&#8594;</span></button></div>
         <div class="schedule">${bkHtml}</div>
       </section>
       <section class="faculty-shortcuts" aria-label="Quick actions">
-        <button type="button" class="faculty-shortcut" onclick="go('catalog')"><span class="faculty-shortcut-icon">âŒ•</span><span><strong>Find a space</strong><small>Browse available campus resources</small></span><span class="faculty-shortcut-arrow">â†’</span></button>
-        <button type="button" class="faculty-shortcut" onclick="go('bookEquipment')"><span class="faculty-shortcut-icon faculty-shortcut-icon-alt">âœ³</span><span><strong>Book equipment</strong><small>Reserve the equipment you need</small></span><span class="faculty-shortcut-arrow">â†’</span></button>
+        <button type="button" class="faculty-shortcut" onclick="go('catalog')"><span class="faculty-shortcut-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18M5 20V8l7-4 7 4v12M9 20v-6h6v6M8 9h.01M12 9h.01M16 9h.01"/></svg></span><span><strong>Find a space</strong><small>Browse available campus resources</small></span><span class="faculty-shortcut-arrow" aria-hidden="true">&#8594;</span></button>
+        <button type="button" class="faculty-shortcut" onclick="go('bookEquipment')"><span class="faculty-shortcut-icon faculty-shortcut-icon-alt" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8m-4-4v4M7 9h6m-6 3h4m6-5v6m-2-2 2 2 2-2"/></svg></span><span><strong>Book equipment</strong><small>Reserve the equipment you need</small></span><span class="faculty-shortcut-arrow" aria-hidden="true">&#8594;</span></button>
       </section>
     `;
     host.innerHTML = html;
