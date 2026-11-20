@@ -1,182 +1,104 @@
-# Smart Campus — Space & Resource Booking System
+# Smart Campus
 
-A full-stack, enterprise campus resource booking platform with conflict-free academic timetable scheduling, multi-resource reservations, automated approvals, equipment tracking, society management, and role-based access control.
+Smart Campus is a campus space and resource booking application. It pairs a vanilla JavaScript single-page frontend with a FastAPI backend and a MySQL database. Users can browse resources, request and manage bookings, and use related tools for timetables, approvals, equipment, maintenance, societies, notifications, and reports. Access is controlled by user role.
 
----
-
-## 1. System Architecture
+## Project layout
 
 ```text
-Smart-Campus/
-│
-├── frontend/                     # Vanilla JS single-page application
-│   ├── index.html                # SPA Shell
-│   ├── css/
-│   │   └── style.css             # Responsive design system and role-based dashboard themes
-│   └── js/
-│       ├── config.js             # API base URL & token storage keys
-│       ├── api.js                # Centralized Fetch client with JWT authorization
-│       ├── auth.js               # Authentication, Argon2id verification, session state
-│       ├── navigation.js         # View routing & role guards
-│       ├── resources.js          # Catalog & resource management (MySQL-backed)
-│       ├── bookings.js           # Conflict-free booking engine & reschedule modal
-│       ├── approvals.js          # Admin approval & rejection queue
-│       ├── maintenance.js        # Maintenance tracking & blackout periods
-│       ├── notifications.js      # User alerts & read/unread counters
-│       ├── societies.js          # Student societies & membership roles
-│       ├── equipment.js          # Media & equipment inventory management
-│       ├── reports.js            # KPI dashboards & peak-hour analytics
-│       └── app.js                # Application entrypoint & DOM event bindings
-│
-├── backend/                      # Python FastAPI REST API Backend
-│   ├── app/
-│   │   ├── main.py               # Application entrypoint, CORS, lifespan, Swagger docs
-│   │   ├── core/
-│   │   │   ├── config.py         # Pydantic Settings & environment loader
-│   │   │   ├── security.py       # Argon2id password hashing & PyJWT token handling
-│   │   │   └── permissions.py    # Role-based access control (Student, Faculty, Admin, Staff)
-│   │   ├── database/
-│   │   │   ├── connection.py     # Centralized MySQL connection pool
-│   │   │   ├── dependencies.py   # FastAPI request-scoped DB session dependency
-│   │   │   └── transaction.py    # Atomic database transaction manager
-│   │   ├── api/v1/
-│   │   │   ├── router.py         # Versioned API Router
-│   │   │   └── endpoints/        # 47 REST endpoints
-│   │   │       ├── auth.py
-│   │   │       ├── users.py
-│   │   │       ├── departments.py
-│   │   │       ├── categories.py
-│   │   │       ├── resources.py
-│   │   │       ├── timetable.py
-│   │   │       ├── bookings.py
-│   │   │       ├── approvals.py
-│   │   │       ├── equipment.py
-│   │   │       ├── societies.py
-│   │   │       ├── maintenance.py
-│   │   │       ├── checkins.py
-│   │   │       ├── notifications.py
-│   │   │       └── reports.py
-│   │   ├── schemas/              # Pydantic request/response models
-│   │   └── services/             # Timetable availability engine & booking workflows
-│   ├── scripts/
-│   │   ├── test_db.py            # MySQL connectivity verification
-│   │   └── seed_admin.py         # Secure Argon2id Admin creation
-│   ├── tests/
-│   │   └── test_api.py           # Comprehensive integration & unit test suite
-│   ├── requirements.txt          # Python dependencies
-│   ├── .env                      # Environment configuration (ignored in git)
-│   └── .env.example              # Template environment file
-│
+Smart_campus/
+├── backend/
+│   ├── app/                  # FastAPI routes, schemas, database and services
+│   ├── scripts/              # Database checks and admin seeding
+│   ├── tests/                # Backend tests
+│   ├── requirements.txt
+│   └── .env.example          # Backend configuration template
 ├── database/
-│   ├── schema.sql                # Complete MySQL schema dump
-│   ├── seeds/                    # Seed configurations
-│   └── migrations/               # Database migrations
-│
-└── .gitignore
+│   ├── schema.sql            # MySQL schema
+│   ├── migrations/           # SQL migrations and migration runners
+│   └── seeds/                # Optional seed data
+├── frontend/                 # Frontend served by the included launch scripts
+│   ├── index.html
+│   ├── css/
+│   └── js/
+├── index.html, css/, js/     # Root-level static-host copy of the frontend
+├── run_all.bat               # Start backend and frontend on Windows
+├── run_backend.bat
+└── run_frontend.bat
 ```
 
-The repository also includes a root-level `index.html`, `css/`, and `js/` copy for hosts that publish the repository root. Keep the root and `frontend/` copies in sync when changing frontend code. The active copy is the one in the static host's configured publish directory.
+The Windows launch scripts serve `frontend/`. The root-level `index.html`, `css/`, and `js/` are a second copy intended for static hosts configured to publish the repository root. Keep the copies synchronized when changing frontend files.
 
-### Dashboard design
+## Requirements
 
-Student, faculty, and admin dashboards share the warm botanical palette and glass surfaces: translucent blurred sidebars, frosted cards, and coral, sage, and lavender accents. The admin overview adds campus metrics, inventory and maintenance summaries, upcoming sessions, resource distribution, and recent activity. Faculty see upcoming approved bookings and quick links to resources and equipment.
+- Python 3.10 or newer
+- MySQL 8.0
+- A modern browser
 
----
+## Setup
 
-## 2. Requirements & Prerequisites
+### 1. Configure MySQL
 
-* **Python**: 3.10, 3.11, 3.12, or 3.13
-* **Database**: MySQL 8.0 Server (Database name: `smart_campus`)
-* **Browser**: Modern web browser (Chrome, Edge, Firefox, Safari)
+Create a MySQL database named `smart_campus`, then initialize it with [`database/schema.sql`](database/schema.sql). Configure the database connection in `backend/.env` using [`backend/.env.example`](backend/.env.example) as a template. Set a strong, unique `SECRET_KEY`; fill in the database host, port, user, and password for your environment. Do not commit `.env` files or production secrets.
 
----
+For an existing installation, apply the migration scripts in order when they have not already been applied. Migration runners are in `database/migrations/`; the available Python runners cover migrations 001 through 014. Migration 015 is a SQL performance-index migration and has no Python runner.
 
-## 3. Installation & Setup
+### 2. Install backend dependencies
 
-### A. Clone and Install Python Dependencies
-```bash
+From the repository root, run:
+
+```powershell
 cd backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 ```
 
-### B. Environment Configuration
-Copy `.env.example` to `.env` in `backend/.env`:
-```ini
-DB_HOST=127.0.0.1
-DB_PORT=3306
-DB_USER=root
-DB_PASSWORD=your_mysql_password
-DB_NAME=smart_campus
-CAMPUS_TIMEZONE=Asia/Kolkata
-SECRET_KEY=smart_campus_secure_jwt_secret_key_2026_nsut_production_ready
-ACCESS_TOKEN_EXPIRE_MINUTES=1440
-CORS_ORIGINS=["http://localhost:5500", "http://127.0.0.1:5500", "http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:8000", "http://127.0.0.1:8000", "http://localhost:8080", "http://127.0.0.1:8080", "null"]
+If PowerShell blocks activation, run the commands below with the virtual environment's Python directly, for example `..\backend\.venv\Scripts\python.exe -m pip install -r requirements.txt` from the repository root.
+
+### 3. Create an administrator
+
+After configuring the database, run the admin seeding script. It prompts for the account details:
+
+```powershell
+cd backend
+python scripts/seed_admin.py
 ```
 
-### C. Verify Database Connection
-```bash
-python test_db.py
-```
+## Run locally
 
-For an existing database, apply the notification audience migration from the project root:
-```bash
-python database/migrations/apply_007_notifications.py
-python database/migrations/apply_008_settings.py
-python database/migrations/apply_009_resource_hours.py
-python database/migrations/apply_010_blackout_management.py
-python database/migrations/apply_011_blackout_exclusions.py
-python database/migrations/apply_012_operating_hours_and_maintenance.py
-python database/migrations/apply_013_operating_hours_activation.py
-python database/migrations/apply_014_equipment_blackouts.py
-```
-Migration 008 adds persisted Admin-managed booking rules (academic year and timetable enforcement, advance window, duration limits, approval workflow, and cancellation cutoff). Migration 009 adds the optional legacy resource operating-hours field. Migration 010 adds linked bulk blackout metadata, reason categories and explanations, and historical cancellation state. Migration 011 stores category-selection exclusions so bulk blackout edits preserve individually removed resources. Migration 012 adds audited recurring weekly resource schedules, date-specific operating-hours exceptions, and a maintenance type field. Migration 013 adds an active switch for recurring schedules while preserving existing schedule rows. Migration 014 adds additive, audited equipment blackout periods. Configure bulk resource hours and exceptions from **Admin → Resource Inventory → Operating Hours**; the schedule form defaults to 08:00–18:00 every day, with the remaining hours unavailable after the schedule is applied. Booking validation enforces active configured hours, exceptions, blackouts, and pending or approved reservations. Blackout windows can target spaces or equipment, and selected weekdays (such as Monday–Friday) create separate dated occurrences through the selected end date. Blackout creation with overlapping bookings requires explicit Admin confirmation; it preserves existing bookings and notifies affected users. Maintenance overlapping existing bookings also requires explicit conflict review and confirmation. These migrations are additive and preserve existing booking and inventory data. After applying migration 008, configure booking rules from **Admin → Settings**. Authentication tokens and cached users are stored per browser tab, so separate tabs can use separate accounts.
-`CAMPUS_TIMEZONE` sets the IANA timezone used by the backend to classify today's and upcoming schedule bookings; it defaults to `Asia/Kolkata`.
+With Python dependencies and the database configured, run `run_all.bat` from the repository root. It starts both servers and opens the frontend.
 
-### D. Seed the Initial Admin Account (if not already seeded)
-```bash
-python seed_admin.py
-```
+You can also start them separately:
 
----
-
-## 4. Running the Application
-
-### A. Run Backend API
-```bash
+```powershell
+# Terminal 1: backend
 cd backend
 python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
-* **Interactive Swagger UI**: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
-* **ReDoc Documentation**: [http://127.0.0.1:8000/redoc](http://127.0.0.1:8000/redoc)
-* **Health Check**: [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
 
-### B. Run Frontend
-Serve either the root directory or the `frontend/` directory with VS Code Live Server or a static HTTP server. For example, to serve the frontend copy:
-```bash
-# Example with python http.server:
+```powershell
+# Terminal 2: frontend
 cd frontend
 python -m http.server 5500
 ```
-Open `http://localhost:5500` in your web browser.
 
-When deploying, configure the static host to publish the directory containing the intended `index.html`. After frontend changes, push the updated files from that directory and wait for the static-site deploy to complete. Asset version numbers in the HTML are bumped when needed to refresh browser caches.
+Open <http://localhost:5500>. The backend API is at <http://127.0.0.1:8000>; interactive API documentation is at <http://127.0.0.1:8000/docs>, and the health endpoint is <http://127.0.0.1:8000/health>.
 
----
+## Tests and database check
 
-## 5. Running Tests
+From the repository root, install the backend requirements and run the tests with:
 
-Execute the comprehensive test suite:
-```bash
+```powershell
 cd backend
-python tests/test_api.py
+python -m pytest
 ```
 
----
+To check MySQL connectivity, run `python scripts/test_db.py` from `backend/`.
 
-## 6. Security Features
+## Configuration notes
 
-* **Password Hashing**: Argon2id via `argon2-cffi`.
-* **Tokens**: Cryptographic HS256 JWT tokens with automatic expiry.
-* **SQL Injection Protection**: 100% parameterized queries using `mysql-connector-python`.
-* **Atomic Transactions**: Multi-table consistency via context-managed database transactions.
-* **Role-Based Access Control**: Backend-enforced permissions for Student, Faculty, Staff, and Admin.
+- Backend settings are loaded from `backend/.env`; use `backend/.env.example` as the template.
+- `CORS_ORIGINS` must include the origin serving the frontend, such as `http://localhost:5500`.
+- `CAMPUS_TIMEZONE` controls the timezone used to classify schedule dates. The default is `Asia/Kolkata`.
+- Authentication uses expiring JWT access tokens; passwords are hashed with Argon2id.
+- Booking availability accounts for configured operating hours, timetable entries, reservations, maintenance, and blackout periods.
